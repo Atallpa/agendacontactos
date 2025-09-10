@@ -446,9 +446,7 @@ const dbReady = new Promise((resolve, reject) => {
       store.createIndex("category","category",{unique:false});
       store.createIndex("codigo","codigo",{unique:false});
       const contacts = e.target.transaction.objectStore("contacts");
-      contacts.add({owner:"admin",name:"Emergencias",phone:"112",email:"",category:"Asistencia",codigo:""});
-      contacts.add({owner:"admin",name:"Policía",phone:"091",email:"",category:"Administraciones",codigo:""});
-      contacts.add({owner:"admin",name:"Bomberos",phone:"080",email:"",category:"Administraciones",codigo:""});
+      
     } else {
       store = e.target.transaction.objectStore("contacts");
       for (const field of ["phone","email","category","codigo","name","owner"]) {
@@ -970,3 +968,4 @@ document.getElementById("importFile").addEventListener("change", async (e) => {
 </script>
 </body>
 </html>
+
