@@ -850,37 +850,39 @@
     }catch{ return null; }
   }
 
-  async function login() {
-    console.log('login() start');
-    try {
-      const email = normUser($("username").value);
-      const password = $("password").value;
+ async function login() {
+  console.log('login() start');
+  const btn = $('btnLogin');
+  try {
+    const email = normUser($("username").value);
+    const password = $("password").value;
+    if (!email || !password) { alert("Completa usuario y contraseña."); return; }
 
-      if (!email || !password) {
-        alert("Completa usuario y contraseña.");
-        return;
-      }
+    // UI: bloquea botón mientras se autentica
+    if (btn) { btn.disabled = true; btn.textContent = 'Entrando…'; }
 
-      console.log('Llamando a signInWithPassword…');
-      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('TIMEOUT (8s)')), 8000));
-      const req = sb.auth.signInWithPassword({ email, password });
-      const { data, error } = await Promise.race([req, timeout]);
+    console.time('supabase.signIn'); // medir cuánto tarda realmente
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    console.timeEnd('supabase.signIn');
 
-      console.log('Respuesta signIn:', { data, error });
+    console.log('Respuesta signIn:', { data, error });
 
-      if (error) {
-        alert(`${error.status || ''} ${error.name || ''} - ${error.message}`);
-        return;
-      }
-
-      console.log('signIn OK → afterAuth');
-      await afterAuth();
-      console.log('login() end');
-    } catch (e) {
-      console.error('login() exception:', e);
-      alert('Error de login: ' + (e?.message || e));
+    if (error) {
+      alert(`${error.status || ''} ${error.name || ''} - ${error.message}`);
+      return;
     }
+
+    console.log('signIn OK → afterAuth');
+    await afterAuth();
+    console.log('login() end');
+  } catch (e) {
+    console.error('login() exception:', e);
+    alert('Error de login: ' + (e?.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Iniciar sesión'; }
   }
+}
+
 
   async function sendResetLink(){
     const email = normUser($("username").value);
