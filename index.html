@@ -630,13 +630,6 @@
 
 
 
-
-
-
-
-
-
-
   <!-- Inicio de sesión -->
   <fieldset id="loginBox">
     <legend>Inicio de sesión</legend>
@@ -670,8 +663,6 @@
         </label>
       </div>
     </form>
-
-    </div>
 
     <div style="margin-top:6px;">
       <a id="linkForgot" href="#" class="muted">¿Olvidaste tu contraseña?</a>
@@ -901,50 +892,30 @@ async function login() {
   const password = document.getElementById("password").value;
   const keep = document.getElementById("keepSession")?.checked !== false;
 
-  if (!email || !password) {
-    alert("Completa usuario y contraseña.");
-    return;
-  }
+  if (!email || !password) { alert("Completa usuario y contraseña."); return; }
 
-  // 1) Chequeo PREVIO de existencia
+  // 🔧 Limpieza local por si quedó algo corrupto
+  try { await sb.auth.signOut({ scope: 'local' }); } catch {}
+
+  // (opcional) comprobar existencia vía RPC
   let exists = null;
-  try {
-    exists = await checkUserExists(email); // true / false / null (si falló el RPC)
-  } catch (e) {
-    exists = null;
-  }
+  try { exists = await checkUserExists(email); } catch { exists = null; }
+  if (exists === false) { alert("El usuario no existe. Por favor, regístrate."); return; }
 
-  if (exists === false) {
-    alert("El usuario no existe. Por favor, regístrate.");
-    return;
-  }
-
-  // 2) Intento de login
   const { data, error } = await sb.auth.signInWithPassword({ email, password });
-
-  // Si hubo error y no sabemos si existía (RPC falló), diferenciamos aquí
   if (error) {
-    if (error.message?.toLowerCase().includes("invalid login credentials")) {
-      if (exists === true) {
-        alert("Contraseña incorrecta.");
-      } else {
-        // Como fallback, asumimos que no existe si el RPC no respondió
-        alert("El usuario no existe o la contraseña es incorrecta.");
-      }
-    } else {
-      alert("No se pudo iniciar sesión: " + error.message);
-    }
+    alert(error.message?.toLowerCase().includes("invalid")
+      ? (exists === true ? "Contraseña incorrecta." : "El usuario no existe o la contraseña es incorrecta.")
+      : ("No se pudo iniciar sesión: " + error.message));
     return;
   }
 
-  // 3) Persistencia de sesión (si marcaste no mantener)
-  if (!keep) {
-    // Si llamabas a clearPersistedSupabaseSession(), quítalo o impleméntalo.
-    // Con supabase-js v2, basta con cerrar pestaña/ventana para no “mantener”.
-  }
+  // 👇 Si NO quieres persistir, mueve las claves de sb- a sessionStorage
+  if (!keep) clearPersistedSupabaseSession();
 
   await afterAuth();
 }
+
 
 
   async function sendResetLink(){
@@ -1192,12 +1163,30 @@ async function login() {
     });
     $('importFile')?.addEventListener('change', async (e)=>{ const file=e.target.files?.[0]; if(!file) return; const text=await file.text(); await importDBFromText(text); });
 
-    // Estado inicial
-    (async ()=>{
-      const { data:{ session } } = await sb.auth.getSession();
-      if(session?.user){ currentUser=session.user; await afterAuth(); }
-      else { currentUser=null; showLogin(); $('app').style.display='none'; }
-    })();
+// Estado inicial “a prueba de sesiones zombie”
+(async () => {
+  try {
+    const { data: { session }, error } = await sb.auth.getSession();
+    if (error) throw error;
+
+    if (session?.user) {
+      try {
+        // Fuerza un refresh inmediato; si peta, limpiamos.
+        await sb.auth.refreshSession();
+        currentUser = session.user;
+        await afterAuth();
+        return;
+      } catch (e) {
+        // refresh falló: limpiamos local y mostramos login
+        await sb.auth.signOut({ scope: 'local' }).catch(()=>{});
+      }
+    }
+  } catch {}
+
+  currentUser = null;
+  showLogin();
+  $('app').style.display = 'none';
+})();
   });
 </script>
 
@@ -1205,4 +1194,3 @@ async function login() {
 </body>
 
 </html>
-
