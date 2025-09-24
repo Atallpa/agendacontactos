@@ -1115,6 +1115,13 @@ document.addEventListener('visibilitychange', () => {
 
   /* ---------------- AQUÍ va DOMContentLoaded: engancha TODOS los listeners del DOM ---------------- */
   window.addEventListener('DOMContentLoaded', () => {
+    // 👇 DEBUG: pega esto aquí, antes de enganchar listeners
+  const { data:{ session }, error } = await sb.auth.getSession();
+  console.log('Boot session:', session, error);
+
+  sb.auth.onAuthStateChange((event, session) => {
+    console.log('Auth event:', event, session);
+  });
     // Formularios
     $('loginForm')?.addEventListener('submit', (e)=>{ e.preventDefault(); login(); });
     $('registerForm')?.addEventListener('submit', (e)=>{ e.preventDefault(); register(); });
@@ -1182,6 +1189,7 @@ document.addEventListener('visibilitychange', () => {
 
 
 </html>
+
 
 
 
