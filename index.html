@@ -963,7 +963,18 @@ async function login() {
 
   // Limpia el listener al cerrar la pestaña (opcional)
   // Limpieza sin usar unload/beforeunload
-const off = () => { try { subscription?.unsubscribe(); } catch {} };
+/*const off = () => { try { subscription?.unsubscribe(); } catch {} };*/
+  const off = () => {
+  try { subscription?.unsubscribe(); } catch {}
+};
+
+// Se dispara al navegar, cerrar pestaña o ir atrás, y funciona con bfcache
+window.addEventListener('pagehide', off, { once: true });
+
+// Respaldo por si algún navegador no lanza pagehide en tu caso
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') cleanup();
+}, { once: true });
 
 // Se dispara al abandonar la página (incluye navegación y cierre)
 window.addEventListener('pagehide', off, { once: true });
@@ -1171,6 +1182,7 @@ document.addEventListener('visibilitychange', () => {
 
 
 </html>
+
 
 
 
