@@ -796,11 +796,11 @@
   const SUPABASE_URL = "https://euejoapezqbflobpdklk.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZWpvYXBlenFiZmxvYnBka2xrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0MTU0MTMsImV4cCI6MjA3Mjk5MTQxM30.BwK_NSGHOFjjitsjdJy0cCo9TQSwd49UjL5FoEOoaB4";
 
-  // Cliente Supabase (persistencia en localStorage por defecto)
+  // Cliente Supabase
   const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: true }
   });
-  window.supabase = sb; // si lo usas en otros sitios
+  window.supabase = sb;
 
   /* ---------------- Utils UI ---------------- */
   let currentUser = null;
@@ -820,7 +820,7 @@
   function showLogin(){ $('loginBox').style.display="block"; $('registerBox').style.display="none"; }
   function showRegister(){ $('loginBox').style.display="none"; $('registerBox').style.display="block"; $('regUsername')?.classList.remove("invalid"); $('userHintReg')?.classList.remove("show"); }
 
-  // “Recordarme”: mueve las claves de Supabase de localStorage -> sessionStorage
+  // (opcional)
   function clearPersistedSupabaseSession(){
     try{
       const keys = Object.keys(localStorage).filter(k => k.startsWith("sb-"));
@@ -841,84 +841,50 @@
     showLogin();
   }
 
-  // (Opcional) Si creaste una RPC user_exists(email_input text)
+  // (Opcional) RPC para comprobar usuario
   async function checkUserExists(email){
     try{
       const { data, error } = await sb.rpc('user_exists', { email_input: email });
-      if(error) return null; // no cortar el flujo si no existe la RPC
+      if(error) return null;
       return !!data;
     }catch{ return null; }
   }
 
   async function login() {
-  console.log('login() start');
+    console.log('login() start');
+    try {
+      const email = normUser($("username").value);
+      const password = $("password").value;
 
-  try {
-    const email = normUser($("username").value);
-    const password = $("password").value;
-
-    if (!email || !password) {
-      alert("Completa usuario y contraseña.");
-      return;
-    }
-
-    console.log('Llamando a signInWithPassword…');
-    // timeout 8s para detectar cuelgues de red/CORS/proyecto pausado
-    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('TIMEOUT (8s)')), 8000));
-    const req = sb.auth.signInWithPassword({ email, password });
-
-    const { data, error } = await Promise.race([req, timeout]);
-    console.log('Respuesta signIn:', { data, error });
-
-    if (error) {
-      alert(`${error.status || ''} ${error.name || ''} - ${error.message}`);
-      return;
-    }
-
-    console.log('signIn OK → afterAuth');
-    await afterAuth();
-    console.log('login() end');
-
-  } catch (e) {
-    console.error('login() exception:', e);
-    alert('Error de login: ' + (e?.message || e));
-  }
-}
-
-
-  // 2) Intento de login
-  const { data, error } = await sb.auth.signInWithPassword({ email, password });
-
-  // Si hubo error y no sabemos si existía (RPC falló), diferenciamos aquí
-  if (error) {
-    if (error.message?.toLowerCase().includes("invalid login credentials")) {
-      if (exists === true) {
-        alert("Contraseña incorrecta.");
-      } else {
-        // Como fallback, asumimos que no existe si el RPC no respondió
-        alert("El usuario no existe o la contraseña es incorrecta.");
+      if (!email || !password) {
+        alert("Completa usuario y contraseña.");
+        return;
       }
-    } else {
-      alert("No se pudo iniciar sesión: " + error.message);
+
+      console.log('Llamando a signInWithPassword…');
+      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('TIMEOUT (8s)')), 8000));
+      const req = sb.auth.signInWithPassword({ email, password });
+      const { data, error } = await Promise.race([req, timeout]);
+
+      console.log('Respuesta signIn:', { data, error });
+
+      if (error) {
+        alert(`${error.status || ''} ${error.name || ''} - ${error.message}`);
+        return;
+      }
+
+      console.log('signIn OK → afterAuth');
+      await afterAuth();
+      console.log('login() end');
+    } catch (e) {
+      console.error('login() exception:', e);
+      alert('Error de login: ' + (e?.message || e));
     }
-    
   }
-
-  // 3) Persistencia de sesión (si marcaste no mantener)
-  if (!keep) {
-    // Si llamabas a clearPersistedSupabaseSession(), quítalo o impleméntalo.
-    // Con supabase-js v2, basta con cerrar pestaña/ventana para no “mantener”.
-  }
-
-  await afterAuth();
-
-
 
   async function sendResetLink(){
     const email = normUser($("username").value);
     if(!email){ alert("Escribe tu email en 'Usuario' y vuelve a pulsar '¿Olvidaste tu contraseña?'"); return; }
-
-    // IMPORTANTE: añade esta URL en Supabase → Authentication → URL configuration → Redirect URLs
     const redirectTo = `${window.location.origin}/#/recuperar`;
     const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
     if(error){ alert("No se pudo enviar el correo: " + error.message); return; }
@@ -929,21 +895,36 @@
     try{ await sb.auth.signOut(); }catch(e){ alert('No se pudo cerrar sesión: ' + (e?.message || e)); }
   }
 
+  function clearAllReminderTimers(){
+    try{
+      for(const [id, t] of reminderTimers.entries()){
+        if(t?.timeoutId) clearTimeout(t.timeoutId);
+        if(t?.intervalId) clearInterval(t.intervalId);
+        reminderTimers.delete(id);
+      }
+    }catch(e){ console.warn('clearAllReminderTimers error', e); }
+  }
+
   async function afterAuth(){
-    const { data:{ user } } = await sb.auth.getUser();
-    currentUser = user;
-    if(!currentUser){ showLogin(); return; }
-    $('loginBox').style.display="none";
-    $('registerBox').style.display="none";
-    $('app').style.display="block";
-    $('userName').textContent = user.email || "";
-    resetForm();
-    await ensureCategoryOptions();
-    await refreshList();
-    await refreshRemindersTable();
-    clearAllReminderTimers();
-    await loadAndScheduleReminders();
-    showOverlay('welcomePopup', true);
+    try{
+      const { data:{ user } } = await sb.auth.getUser();
+      currentUser = user;
+      if(!currentUser){ showLogin(); return; }
+      $('loginBox').style.display="none";
+      $('registerBox').style.display="none";
+      $('app').style.display="block";
+      $('userName').textContent = user.email || "";
+      resetForm();
+      await ensureCategoryOptions();
+      await refreshList();
+      await refreshRemindersTable();
+      clearAllReminderTimers();
+      await loadAndScheduleReminders();
+      showOverlay('welcomePopup', true);
+    }catch(e){
+      console.error('afterAuth error:', e);
+      alert('Hubo un error al cargar la app: ' + (e?.message || e));
+    }
   }
 
   // Escucha cambios de sesión (incluye PASSWORD_RECOVERY)
@@ -956,7 +937,6 @@
         await afterAuth();
         break;
       case 'PASSWORD_RECOVERY': {
-        // El usuario ha abierto el enlace del email de recuperación
         const newPassword = prompt("Introduce tu nueva contraseña:");
         if(!newPassword) return;
         const { error } = await sb.auth.updateUser({ password: newPassword });
@@ -972,34 +952,14 @@
     }
   });
 
-  // Limpia el listener al cerrar la pestaña (opcional)
-  // Limpieza sin usar unload/beforeunload
-//const off = () => { try { subscription?.unsubscribe(); } catch {} };
+  // Limpieza del subscription (una sola vez)
+  const off = () => { try { subscription?.unsubscribe(); } catch {} };
+  window.addEventListener('pagehide', off, { once: true });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') off();
+  }, { once: true });
 
-const off = () => {
-  try { subscription?.unsubscribe(); } catch {}
-};
-
-// Se dispara al navegar, cerrar pestaña o ir atrás, y funciona con bfcache
-window.addEventListener('pagehide', off, { once: true });
-
-// Respaldo por si algún navegador no lanza pagehide en tu caso
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') cleanup();
-}, { once: true });
-
-
-
-
-// Se dispara al abandonar la página (incluye navegación y cierre)
-window.addEventListener('pagehide', off, { once: true });
-
-// (Opcional) Fallback para navegadores que no disparan pagehide de forma fiable
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') off();
-}, { once: true });
-
-  /* ---------------- Contactos & Recordatorios (tus funciones actuales) ---------------- */
+  /* ---------------- Contactos & Recordatorios ---------------- */
   function resetForm(){
     currentEditId=null;
     ['contactName','contactPhone','contactEmail','contactCodigo'].forEach(id=>$(id).value='');
@@ -1109,7 +1069,7 @@ document.addEventListener('visibilitychange', () => {
     }
   }
 
-  // ---- Recordatorios (idéntico a tu versión, omitido por brevedad) ----
+  // ---- Recordatorios ----
   async function sbUser(){ const { data:{ user }, error } = await sb.auth.getUser(); if(error) throw error; if(!user) throw new Error("No hay usuario autenticado."); return user; }
   async function addReminder({ message, whenTs, repeat }){ const user=await sbUser(); const whenIso=new Date(whenTs).toISOString(); const { data, error }=await sb.from("reminders").insert({ user_id:user.id, message, when_ts:whenIso, repeat:!!repeat, active:true }).select("id").single(); if(error){ alert("No se pudo guardar el recordatorio: "+error.message); throw error; } return data.id; }
   async function getMyReminders(){ const user=await sbUser(); const { data, error }=await sb.from("reminders").select("id, message, when_ts, repeat, active").eq("user_id", user.id).order("when_ts", { ascending:true }); if(error){ alert("Error cargando recordatorios: "+error.message); return []; } return data.map(r=>({ id:r.id, message:r.message, repeat:r.repeat, active:r.active, whenTs:new Date(r.when_ts).getTime() })); }
@@ -1123,60 +1083,39 @@ document.addEventListener('visibilitychange', () => {
   async function scheduleReminder(){ const date=$('remDate').value, time=$('remTime').value, msg=$('remMsg').value.trim(), repeat=$('remRepeat').checked; if(!date||!time||!msg){ alert('Completa fecha, hora y mensaje.'); return; } const target=new Date(`${date}T${time}`); if(isNaN(target.getTime())) return alert('Fecha u hora no válidas.'); if(target.getTime()<=Date.now()) return alert('La fecha y hora deben ser futuras.'); const id=await addReminder({message:msg, whenTs:target.getTime(), repeat}); const list=await getMyReminders(); const rem=list.find(r=>r.id===id); if(rem) scheduleReminderInMemory(rem); $('reminderStatus').textContent=`Guardado para ${target.toLocaleString()}${repeat?' (cada 10 min)':''}.`; setTimeout(()=>{ showOverlay('reminderFormPopup', false); $('reminderStatus').textContent=''; $('remDate').value=''; $('remTime').value=''; $('remMsg').value=''; $('remRepeat').checked=false; toast('Recordatorio programado'); }, 700); await refreshRemindersTable(); }
   function showReminderPopup(message,repeating){ $('reminderText').textContent=message; $('reminderPopup').style.display='flex'; $('btnStopRepeat').style.display=repeating?'inline-block':'none'; }
   async function stopRepeatForCurrent(){ if(currentPopupReminderId==null){ $('reminderPopup').style.display='none'; return; } const list=await getMyReminders(); const rem=list.find(r=>r.id===currentPopupReminderId); if(rem){ rem.active=false; await updateReminder(rem); const e=reminderTimers.get(rem.id); if(e){ if(e.timeoutId) clearTimeout(e.timeoutId); if(e.intervalId) clearInterval(e.intervalId); } reminderTimers.delete(rem.id); await refreshRemindersTable(); } $('reminderPopup').style.display='none'; currentPopupReminderId=null; }
-  async function requestNotificationsViaCheckbox(e){ if(!e.target.checked) return; if(!('Notification' in window)){ alert('Este navegador no soporta notificaciones.'); e.target.checked=false; return; } if(Notification.permission==='granted'){ toast('Notificaciones activadas'); return; } try{ const perm=await Notification.requestPermission(); if(perm==='granted') toast('Notificaciones permitidas'); else { alert('Notificaciones no permitidas.'); e.target.checked=false; } } catch{ e.target.checked=false; alert('No se pudo solicitar permiso.'); } }
+  async function requestNotificationsViaCheckbox(e){ if(!e.target.checked) return; if(!('Notification' in window)){ alert('Este navegador no soporta notificaciones.'); e.target.checked=false; return; } if(Notification.permission==='granted'){ toast('Notificaciones activadas'); return; } try{ const perm=await Notification.requestPermission(); if(perm==='granted') toast('Notificaciones permitidas'); else { alert('Notificaciones no permitidas.'); e.target.checked=false; } } catch{ e.target.checked=false; alert('No se pudo solicitar permiso.'); }
 
-  async function exportDB(){ if(!currentUser){ alert("Inicia sesión primero."); return; } const [contactsRes, remindersRes] = await Promise.all([ sb.from('contacts').select('*').eq('user_id', currentUser.id), sb.from('reminders').select('*').eq('user_id', currentUser.id) ]); const contacts = contactsRes.data || []; const reminders = remindersRes.data || []; const data = { meta: { app: "GuiaTelefonica", version: 2, exportedAt: new Date().toISOString(), user: currentUser.email }, contacts, reminders }; const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `guia_telefonica_${currentUser.email}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); }
-  async function importDBFromText(jsonText){ try{ if(!currentUser){ alert("Inicia sesión primero."); return; } let data; try{ data=JSON.parse(jsonText); }catch{ alert("JSON inválido."); return; } let contactsRaw=Array.isArray(data.contacts)?data.contacts:[]; let remindersRaw=Array.isArray(data.reminders)?data.reminders:[]; const contactsToInsert=[]; const seen=new Set(); for(const c of contactsRaw){ if(c.is_global===true || c.owner==="admin") continue; const name=(c.name??"").trim(); const phone=(c.phone??"").trim(); const email=(c.email??"").trim(); const category=(c.category??"").trim(); const codigo=(c.codigo??"").trim(); if(!name) continue; const key=[name,phone,email,category,codigo].join("|").toLowerCase(); if(seen.has(key)) continue; seen.add(key); contactsToInsert.push({ user_id: currentUser.id, name, phone, email, category, codigo }); } const remindersToInsert=[]; for(const r of remindersRaw){ const message=(r.message??"").trim(); if(!message) continue; let whenIso; if(r.when_ts){ const t=new Date(r.when_ts); if(isNaN(t.getTime())) continue; whenIso=t.toISOString(); } else if(r.whenTs){ const t=new Date(typeof r.whenTs==="number"?r.whenTs:Date.parse(r.whenTs)); if(isNaN(t.getTime())) continue; whenIso=t.toISOString(); } else continue; remindersToInsert.push({ user_id: currentUser.id, message, when_ts: whenIso, repeat: !!r.repeat, active: typeof r.active==="boolean"? r.active : true }); } async function batchInsert(table, rows, size=500){ for(let i=0;i<rows.length;i+=size){ const slice=rows.slice(i,i+size); const { error }=await sb.from(table).insert(slice); if(error) throw new Error(`${table}: ${error.message}`); } } if(contactsToInsert.length) await batchInsert("contacts", contactsToInsert); if(remindersToInsert.length) await batchInsert("reminders", remindersToInsert); await refreshList(); await refreshRemindersTable(); clearAllReminderTimers(); await loadAndScheduleReminders(); toast(`Importación completada: ${contactsToInsert.length} contactos, ${remindersToInsert.length} recordatorios.`); }catch(err){ console.error(err); alert("Error importando: " + (err?.message || err)); } }
-
-  /* ---------------- AQUÍ va DOMContentLoaded: engancha TODOS los listeners del DOM ---------------- */
+  /* ---------------- Arranque: listeners ---------------- */
   window.addEventListener('DOMContentLoaded', () => {
-
     const btn = $('btnLogin');
-if (btn) btn.addEventListener('click', (e) => { e.preventDefault(); login(); });
-// (si dejas submit en el form, cancélalo pero NO llames a login ahí)
-
     const lf  = $('loginForm');
 
+    // Bloquea submit (no recargar)
+    if (lf) lf.addEventListener('submit', (e) => { e.preventDefault(); e.stopPropagation(); });
 
-// (cinturón y tirantes)
-if (lf) {
-  lf.addEventListener('submit', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    return false;
-  });
-}
-if (btn) {
-  btn.addEventListener('click', (e) => {
-    e.preventDefault();
-    login();
-  });
-}
+    // Una sola ruta: click del botón
+    if (btn) btn.addEventListener('click', (e) => { e.preventDefault(); login(); });
 
     console.log('DOM listo, listeners login:', { hasForm: !!lf, hasBtn: !!btn });
-    // Formularios
-    $('loginForm')?.addEventListener('submit', (e)=>{ e.preventDefault(); login(); });
+
+    // Resto de listeners
     $('registerForm')?.addEventListener('submit', (e)=>{ e.preventDefault(); register(); });
 
-    // Links/login
     $('linkGoRegister')?.addEventListener('click', (e)=>{ e.preventDefault(); showRegister(); });
     $('btnBackToLogin')?.addEventListener('click', showLogin);
     $('linkForgot')?.addEventListener('click', (e)=>{ e.preventDefault(); sendResetLink(); });
 
-    // Sesión
     $('btnLogout')?.addEventListener('click', logout);
 
-    // Recordatorios & varios
-    $('btnOpenRemForm')?.addEventListener('click', async ()=>{ showOverlay('reminderFormPopup', true); /* pestaña form por defecto */ await refreshRemindersTable(); });
+    $('btnOpenRemForm')?.addEventListener('click', async ()=>{ showOverlay('reminderFormPopup', true); await refreshRemindersTable(); });
     $('btnCancelRemForm')?.addEventListener('click', ()=> showOverlay('reminderFormPopup', false));
-    $('tabFormBtn')?.addEventListener('click', ()=> {/*switchRemTab('form')*/});
-    $('tabListBtn')?.addEventListener('click', async ()=>{ /*switchRemTab('list');*/ await refreshRemindersTable(); });
+    $('tabFormBtn')?.addEventListener('click', ()=>{});
+    $('tabListBtn')?.addEventListener('click', async ()=>{ await refreshRemindersTable(); });
     $('notifToggle')?.addEventListener('change', requestNotificationsViaCheckbox);
     $('btnStartWelcome')?.addEventListener('click', ()=> showOverlay('welcomePopup', false));
     $('btnSave')?.addEventListener('click', saveContact);
     $('btnClear')?.addEventListener('click', resetForm);
 
-    // Filtros
     const debounce=(fn,wait=250)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), wait); }; };
     $('filterName')?.addEventListener('input', debounce(refreshList,200));
     $('filterEmail')?.addEventListener('input', debounce(refreshList,200));
@@ -1196,7 +1135,7 @@ if (btn) {
     });
 
     $('btnExport')?.addEventListener('click', exportDB);
-    $('btnImport')?.addEventListener('click', async ()=>{
+    $('btnImport')?.addEventListener('click', async ()=> {
       if (window.showOpenFilePicker) {
         try {
           const [handle] = await showOpenFilePicker({ multiple:false, types:[{ description:"JSON", accept:{ "application/json": [".json"] } }] });
@@ -1214,7 +1153,9 @@ if (btn) {
       else { currentUser=null; showLogin(); $('app').style.display='none'; }
     })();
   });
+};
 </script>
+
 
 
 </body>
