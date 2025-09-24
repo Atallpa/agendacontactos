@@ -1108,6 +1108,127 @@
     }
   } // 👈 ESTA llave faltaba
 
+
+
+
+
+
+
+/* ---------------- Export / Import (Supabase) ---------------- */
+
+// Helper: descargar JSON
+function downloadJSON(filename, obj){
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+  toast("Exportación lista");
+}
+
+// EXPORTA contactos + recordatorios del usuario actual
+async function exportDB(){
+  try{
+    const user = requireUser();
+
+    const [cRes, rRes] = await Promise.all([
+      sb.from("contacts")
+        .select("id,name,phone,email,category,codigo,created_at,updated_at")
+        .eq("user_id", user.id)
+        .order("name", { ascending: true }),
+      sb.from("reminders")
+        .select("id,message,when_ts,repeat,active,created_at,updated_at")
+        .eq("user_id", user.id)
+        .order("when_ts", { ascending: true })
+    ]);
+    if (cRes.error) throw cRes.error;
+    if (rRes.error) throw rRes.error;
+
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      schema: "v1",               // por si cambias estructura en el futuro
+      userEmail: user.email || "",
+      contacts: cRes.data ?? [],
+      reminders: rRes.data ?? []
+    };
+    downloadJSON("agenda-backup.json", payload);
+  } catch (e){
+    alert("No se pudo exportar: " + (e?.message || e));
+  }
+}
+
+// IMPORTA un JSON y lo guarda en Supabase para el usuario actual
+async function importDBFromText(text){
+  try{
+    const user = requireUser();
+    let json;
+    try { json = JSON.parse(text); }
+    catch { alert("Archivo JSON inválido."); return; }
+
+    // Acepta formato nuevo {contacts, reminders} o arrays legados
+    const contacts = Array.isArray(json) ? json : (Array.isArray(json.contacts) ? json.contacts : []);
+    const reminders = Array.isArray(json.reminders) ? json.reminders : [];
+
+    // Normaliza/valida
+    const cleanContacts = contacts.map(c => ({
+      user_id: user.id,
+      name: (c.name||"").toString().trim(),
+      phone: (c.phone||"").toString().trim(),
+      email: (c.email||"").toString().trim(),
+      category: (c.category||"").toString().trim(),
+      codigo: (c.codigo||"").toString().trim()
+    })).filter(c => c.name);
+
+    const cleanReminders = reminders.map(r => ({
+      user_id: user.id,
+      message: (r.message||"").toString().trim(),
+      when_ts: r.when_ts ? new Date(r.when_ts).toISOString() : new Date().toISOString(),
+      repeat: !!r.repeat,
+      active: r.active !== false
+    })).filter(r => r.message);
+
+    // Opción A (simple): INSERTS por lotes
+    const chunk = async (arr, size, insertFn) => {
+      for (let i=0; i<arr.length; i+=size){
+        const part = arr.slice(i, i+size);
+        const { error } = await insertFn(part);
+        if (error) throw error;
+      }
+    };
+    if (cleanContacts.length){
+      // Opción A: conflicto por columnas
+      await sb.from("contacts")
+        .upsert(cleanContacts, { onConflict: "user_id,name,email,phone" });
+
+      // Opción B: conflicto por nombre de la constraint única
+      // await sb.from("contacts").upsert(cleanContacts, { onConflict: "contacts_unq" });
+    }
+
+    if (cleanReminders.length){
+      await chunk(cleanReminders, 500, batch => sb.from("reminders").insert(batch));
+    }
+
+    // Opción B (evitar duplicados): usa upsert con unique constraint (ver notas abajo)
+    // await sb.from("contacts").upsert(cleanContacts, { onConflict: "user_id,name,email,phone" });
+
+    toast("Importación completada");
+    await refreshList();
+    await refreshRemindersTable();
+    await loadAndScheduleReminders();
+  } catch (e){
+    alert("No se pudo importar: " + (e?.message || e));
+  }
+}
+
+
+
+
+
+
+
+
+
+
   /* ---------------- Arranque: listeners ---------------- */
   window.addEventListener('DOMContentLoaded', () => {
     const btn = $('btnLogin');
