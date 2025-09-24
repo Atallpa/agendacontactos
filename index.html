@@ -131,6 +131,7 @@
       border: 1px solid #00e1ff;
       padding: 4px;
       border-radius: 2px;
+      color: blue;
     }
 
     [id^="btn-delete-"] {
@@ -138,6 +139,7 @@
       border: 1px solid #f3623d;
       padding: 4px;
       border-radius: 2px;
+      color: red;
     }
 
     #loginBox {
@@ -1074,8 +1076,8 @@ document.addEventListener('visibilitychange', () => {
       const td=(t)=>{ const x=document.createElement("td"); x.textContent=t||""; return x; };
       tr.appendChild(td(c.name)); tr.appendChild(td(c.phone)); tr.appendChild(td(c.email)); tr.appendChild(td(c.category)); tr.appendChild(td(c.codigo));
       const tdActions=document.createElement("td");
-      const e=document.createElement("button"); e.id=`btn-edit-${c.id}`; e.textContent="✏️"; e.onclick=()=>editContact(c.id); e.disabled=c.readonly;
-      const d=document.createElement("button"); d.id=`btn-delete-${c.id}`; d.textContent="🗑️"; d.onclick=()=>deleteContact(c.id); d.disabled=c.readonly;
+      const e=document.createElement("button"); e.id=`btn-edit-${c.id}`; e.textContent="EDITAR"; e.onclick=()=>editContact(c.id); e.disabled=c.readonly;
+      const d=document.createElement("button"); d.id=`btn-delete-${c.id}`; d.textContent="BORRAR"; d.onclick=()=>deleteContact(c.id); d.disabled=c.readonly;
       tdActions.appendChild(e); tdActions.appendChild(d); tr.appendChild(tdActions);
       tbody.appendChild(tr);
     }
@@ -1169,5 +1171,6 @@ document.addEventListener('visibilitychange', () => {
 
 
 </html>
+
 
 
