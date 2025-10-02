@@ -952,7 +952,7 @@
 
   async function login() {
     const email = normUser(document.getElementById("username").value);
-    const password = document.getElementById("password").value);
+    const password = document.getElementById("password").value;
     const keep = document.getElementById("keepSession")?.checked !== false;
 
     if (!email || !password) { alert("Completa usuario y contraseña."); return; }
@@ -1256,3 +1256,4 @@
 </body>
 
 </html>
+
