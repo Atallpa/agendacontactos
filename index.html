@@ -664,44 +664,6 @@
     </div>
   </fieldset>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   <!-- Registro -->
   <fieldset id="registerBox" style="display:none;">
     <legend>Registro</legend>
@@ -1107,7 +1069,30 @@
   async function scheduleReminder(){ const date=$('remDate').value, time=$('remTime').value, msg=$('remMsg').value.trim(), repeat=$('remRepeat').checked; if(!date||!time||!msg){ alert('Completa fecha, hora y mensaje.'); return; } const target=new Date(`${date}T${time}`); if(isNaN(target.getTime())) return alert('Fecha u hora no válidas.'); if(target.getTime()<=Date.now()) return alert('La fecha y hora deben ser futuras.'); const id=await addReminder({message:msg, whenTs:target.getTime(), repeat}); const list=await getMyReminders(); const rem=list.find(r=>r.id===id); if(rem) scheduleReminderInMemory(rem); $('reminderStatus').textContent=`Guardado para ${target.toLocaleString()}${repeat?' (cada 10 min)':''}.`; setTimeout(()=>{ showOverlay('reminderFormPopup', false); $('reminderStatus').textContent=''; $('remDate').value=''; $('remTime').value=''; $('remMsg').value=''; $('remRepeat').checked=false; toast('Recordatorio programado'); }, 700); await refreshRemindersTable(); }
   function showReminderPopup(message,repeating){ $('reminderText').textContent=message; $('reminderPopup').style.display='flex'; $('btnStopRepeat').style.display=repeating?'inline-block':'none'; }
   async function stopRepeatForCurrent(){ if(currentPopupReminderId==null){ $('reminderPopup').style.display='none'; return; } const list=await getMyReminders(); const rem=list.find(x=>x.id===currentPopupReminderId); if(rem){ rem.active=false; await updateReminder(rem); const e=reminderTimers.get(rem.id); if(e){ if(e.timeoutId) clearTimeout(e.timeoutId); if(e.intervalId) clearInterval(e.intervalId); } reminderTimers.delete(rem.id); await refreshRemindersTable(); } $('reminderPopup').style.display='none'; currentPopupReminderId=null; }
-  async function requestNotificationsViaCheckbox(e){ if(!e.target.checked) return; if(!('Notification' in window)){ alert('Este navegador no soporta notificaciones.'); e.target.checked=false; return; } if(Notification.permission==='granted'){ toast('Notificaciones activadas'); return; } try{ const perm=await Notification.requestPermission(); if(perm==='granted') toast('Notificaciones permitidas'); else { alert('Notificaciones no permitidas.'); e.target.checked=false; } } catch{ e.target.checked=false; alert('No se pudo solicitar permiso.'); }
+  
+async function requestNotificationsViaCheckbox(e){
+  if(!e.target.checked) return;
+  if(!('Notification' in window)){
+    alert('Este navegador no soporta notificaciones.');
+    e.target.checked=false;
+    return;
+  }
+  if(Notification.permission==='granted'){
+    toast('Notificaciones activadas');
+    return;
+  }
+  try{
+    const perm = await Notification.requestPermission();
+    if(perm==='granted') toast('Notificaciones permitidas');
+    else {
+      alert('Notificaciones no permitidas.');
+      e.target.checked=false;
+    }
+  } catch {
+    e.target.checked=false;
+    alert('No se pudo solicitar permiso.');
+  }
+} // ← ESTA llave faltaba
 
   /* =========================
      Export/Import
@@ -1195,10 +1180,6 @@
 
 
 
-
 </body>
 
 </html>
-
-
-
