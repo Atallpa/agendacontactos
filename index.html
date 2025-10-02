@@ -859,12 +859,12 @@
   function showRegister(){ $('loginBox').style.display="none"; $('registerBox').style.display="block"; $('regUsername')?.classList.remove("invalid"); $('userHintReg')?.classList.remove("show"); }
 
   // “Recordarme”: mueve las claves de Supabase de localStorage -> sessionStorage
-  function clearPersistedSupabaseSession(){
+  /*function clearPersistedSupabaseSession(){
     try{
       const keys = Object.keys(localStorage).filter(k => k.startsWith("sb-"));
       for(const k of keys){ sessionStorage.setItem(k, localStorage.getItem(k)); localStorage.removeItem(k); }
     }catch{}
-  }
+  }*/
 
   /* ---------------- Auth ---------------- */
   const normUser = (u)=> (u||"").trim().toLowerCase();
@@ -887,12 +887,21 @@
       return !!data;
     }catch{ return null; }
   }
+
+  function makeClient(storage) {
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, storage }
+  });
+}
 async function login() {
   const email = normUser(document.getElementById("username").value);
   const password = document.getElementById("password").value;
   const keep = document.getElementById("keepSession")?.checked !== false;
 
   if (!email || !password) { alert("Completa usuario y contraseña."); return; }
+
+  // ⚠️ Re-crear el cliente con el storage correcto
+  window.supabase = sb = makeClient(keep ? localStorage : sessionStorage);
 
   // 🔧 Limpieza local por si quedó algo corrupto
   try { await sb.auth.signOut({ scope: 'local' }); } catch {}
@@ -911,7 +920,7 @@ async function login() {
   }
 
   // 👇 Si NO quieres persistir, mueve las claves de sb- a sessionStorage
-  if (!keep) clearPersistedSupabaseSession();
+ // if (!keep) clearPersistedSupabaseSession();
 
   await afterAuth();
 }
