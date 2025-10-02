@@ -834,44 +834,24 @@
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZWpvYXBlenFiZmxvYnBka2xrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0MTU0MTMsImV4cCI6MjA3Mjk5MTQxM30.BwK_NSGHOFjjitsjdJy0cCo9TQSwd49UjL5FoEOoaB4";
 
   /* =========================
-     Supabase: Singleton + storageKey
+     Supabase: Singleton (solo sessionStorage)
      ========================= */
-  // Namespace para tus claves de auth
   const SB_NS = "guia-tel";
-  const LS_KEY = `${SB_NS}:ls`; // storageKey cuando usas localStorage (Recordarme)
-  const SS_KEY = `${SB_NS}:ss`; // storageKey cuando usas sessionStorage (sin Recordarme)
-  const DEFAULT_KEY = "sb-";    // por si ya hubieran quedado claves antiguas
+  const SS_KEY = `${SB_NS}:ss`; // storageKey fijo para sessionStorage
 
-  function makeClient(storage, storageKey) {
+  function makeClient() {
     return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        storage,
-        storageKey
+        storage: sessionStorage,
+        storageKey: SS_KEY
       }
     });
   }
 
-  function hasKeysWithPrefix(storage, prefix){
-    try { return Object.keys(storage).some(k => k.startsWith(prefix)); }
-    catch { return false; }
-  }
-
-  // Decide con qué storage arrancar:
-  // - Si hay claves en localStorage (LS_KEY o DEFAULT_KEY), usa local
-  // - Si no, y hay en sessionStorage (SS_KEY o DEFAULT_KEY), usa session
-  // - Si no hay ninguna, usa local por defecto
-  const initialIsLocal =
-    hasKeysWithPrefix(localStorage, LS_KEY) ||
-    (!hasKeysWithPrefix(sessionStorage, SS_KEY) &&
-     (hasKeysWithPrefix(localStorage, DEFAULT_KEY) || !hasKeysWithPrefix(sessionStorage, DEFAULT_KEY)));
-
-  const initialStorage    = initialIsLocal ? localStorage : sessionStorage;
-  const initialStorageKey = initialIsLocal ? LS_KEY       : SS_KEY;
-
-  // Crea una única instancia global (a prueba de hot-reload)
-  let sb = window.__SB_SINGLETON__ || makeClient(initialStorage, initialStorageKey);
+  // Única instancia global
+  let sb = window.__SB_SINGLETON__ || makeClient();
   window.__SB_SINGLETON__ = sb;
   window.supabase = sb;
 
@@ -910,7 +890,7 @@
     showLogin();
   }
 
-  // (Opcional) Si tienes una RPC user_exists(email_input text)
+  // (Opcional) Si tienes una RPC user_exists(email_input text); si no existe no pasa nada
   async function checkUserExists(email){
     try{
       const { data, error } = await sb.rpc('user_exists', { email_input: email });
@@ -919,7 +899,7 @@
     }catch{ return null; }
   }
 
-  // Suscripción al estado de auth (re-creable)
+  // Suscripción al estado de auth (recreable)
   let authSubscription = null;
   function bindAuthListener() {
     try { authSubscription?.unsubscribe(); } catch {}
@@ -953,39 +933,15 @@
   async function login() {
     const email = normUser(document.getElementById("username").value);
     const password = document.getElementById("password").value;
-    const keep = document.getElementById("keepSession")?.checked !== false;
 
     if (!email || !password) { alert("Completa usuario y contraseña."); return; }
 
-    // Limpia listener del cliente actual
-    try { authSubscription?.unsubscribe(); } catch {}
-
-    // Limpia restos del otro storageKey para que no convivan dos sesiones
-    try {
-      const otherKeyPrefix = keep ? SS_KEY : LS_KEY;
-      const otherStorage   = keep ? sessionStorage : localStorage;
-      Object.keys(otherStorage)
-        .filter(k => k.startsWith(otherKeyPrefix) || k.startsWith(DEFAULT_KEY))
-        .forEach(k => otherStorage.removeItem(k));
-    } catch {}
-
-    // Recrea cliente con storage adecuado y storageKey específica
-    const nextStorage    = keep ? localStorage : sessionStorage;
-    const nextStorageKey = keep ? LS_KEY       : SS_KEY;
-    sb = makeClient(nextStorage, nextStorageKey);
-    window.__SB_SINGLETON__ = sb;
-    window.supabase = sb;
-
-    // Reengancha listener
-    bindAuthListener();
-
-    // (Opcional) comprobar existencia vía RPC sin bloquear si no existe
+    // (opcional) comprobar existencia vía RPC sin bloquear
     try {
       const exists = await checkUserExists(email);
       if (exists === false) { alert("El usuario no existe. Por favor, regístrate."); return; }
     } catch {}
 
-    // Iniciar sesión
     const { data, error } = await sb.auth.signInWithPassword({ email, password });
     if (error) {
       alert(error.message?.toLowerCase().includes("invalid")
@@ -993,7 +949,6 @@
         : ("No se pudo iniciar sesión: " + error.message));
       return;
     }
-
     await afterAuth();
   }
 
@@ -1157,7 +1112,7 @@
   async function scheduleReminder(){ const date=$('remDate').value, time=$('remTime').value, msg=$('remMsg').value.trim(), repeat=$('remRepeat').checked; if(!date||!time||!msg){ alert('Completa fecha, hora y mensaje.'); return; } const target=new Date(`${date}T${time}`); if(isNaN(target.getTime())) return alert('Fecha u hora no válidas.'); if(target.getTime()<=Date.now()) return alert('La fecha y hora deben ser futuras.'); const id=await addReminder({message:msg, whenTs:target.getTime(), repeat}); const list=await getMyReminders(); const rem=list.find(r=>r.id===id); if(rem) scheduleReminderInMemory(rem); $('reminderStatus').textContent=`Guardado para ${target.toLocaleString()}${repeat?' (cada 10 min)':''}.`; setTimeout(()=>{ showOverlay('reminderFormPopup', false); $('reminderStatus').textContent=''; $('remDate').value=''; $('remTime').value=''; $('remMsg').value=''; $('remRepeat').checked=false; toast('Recordatorio programado'); }, 700); await refreshRemindersTable(); }
   function showReminderPopup(message,repeating){ $('reminderText').textContent=message; $('reminderPopup').style.display='flex'; $('btnStopRepeat').style.display=repeating?'inline-block':'none'; }
   async function stopRepeatForCurrent(){ if(currentPopupReminderId==null){ $('reminderPopup').style.display='none'; return; } const list=await getMyReminders(); const rem=list.find(x=>x.id===currentPopupReminderId); if(rem){ rem.active=false; await updateReminder(rem); const e=reminderTimers.get(rem.id); if(e){ if(e.timeoutId) clearTimeout(e.timeoutId); if(e.intervalId) clearInterval(e.intervalId); } reminderTimers.delete(rem.id); await refreshRemindersTable(); } $('reminderPopup').style.display='none'; currentPopupReminderId=null; }
-  async function requestNotificationsViaCheckbox(e){ if(!e.target.checked) return; if(!('Notification' in window)){ alert('Este navegador no soporta notificaciones.'); e.target.checked=false; return; } if(Notification.permission==='granted'){ toast('Notificaciones activadas'); return; } try{ const perm=await Notification.requestPermission(); if(perm==='granted') toast('Notificaciones permitidas'); else { alert('Notificaciones no permitidas.'); e.target.checked=false; } } catch{ e.target.checked=false; alert('No se pudo solicitar permiso.'); } }
+  async function requestNotificationsViaCheckbox(e){ if(!e.target.checked) return; if(!('Notification' in window)){ alert('Este navegador no soporta notificaciones.'); e.target.checked=false; return; } if(Notification.permission==='granted'){ toast('Notificaciones activadas'); return; } try{ const perm=await Notification.requestPermission(); if(perm==='granted') toast('Notificaciones permitidas'); else { alert('Notificaciones no permitidas.'); e.target.checked=false; } } catch{ e.target.checked=false; alert('No se pudo solicitar permiso.'); }
 
   /* =========================
      Export/Import
@@ -1168,7 +1123,7 @@
   function clearAllReminderTimers(){ for(const e of reminderTimers.values()){ try{ if(e.timeoutId) clearTimeout(e.timeoutId); if(e.intervalId) clearInterval(e.intervalId); }catch{} } reminderTimers.clear(); }
 
   /* =========================
-     DOMContentLoaded: listeners + sesión inicial
+     DOMContentLoaded
      ========================= */
   window.addEventListener('DOMContentLoaded', () => {
     // Formularios
@@ -1224,25 +1179,17 @@
     });
     $('importFile')?.addEventListener('change', async (e)=>{ const file=e.target.files?.[0]; if(!file) return; const text=await file.text(); await importDBFromText(text); });
 
-    // Estado inicial: intenta recuperar sesión existente y mostrar la app
+    // Intento de sesión previa en esta pestaña (sessionStorage)
     (async () => {
       try {
         const { data: { session }, error } = await sb.auth.getSession();
         if (error) throw error;
-
         if (session?.user) {
-          try {
-            await sb.auth.refreshSession(); // valida/renueva
-            currentUser = session.user;
-            await afterAuth();              // muestra la app (lista, formulario, botones)
-            return;
-          } catch (e) {
-            await sb.auth.signOut({ scope: 'local' }).catch(()=>{});
-          }
+          currentUser = session.user;
+          await afterAuth();
+          return;
         }
       } catch {}
-
-      // Si no hay sesión, mostrar login
       currentUser = null;
       showLogin();
       $('app').style.display = 'none';
@@ -1253,7 +1200,9 @@
 
 
 
+
 </body>
 
 </html>
+
 
