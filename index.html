@@ -827,31 +827,57 @@
       </table>
     </fieldset>
   </div>
-  <script type="module">
+<script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
   const SUPABASE_URL = "https://euejoapezqbflobpdklk.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZWpvYXBlenFiZmxvYnBka2xrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0MTU0MTMsImV4cCI6MjA3Mjk5MTQxM30.BwK_NSGHOFjjitsjdJy0cCo9TQSwd49UjL5FoEOoaB4";
 
-  // ---------- Cliente Supabase ----------
-  function makeClient(storage) {
+  /* =========================
+     Supabase: Singleton + storageKey
+     ========================= */
+  // Namespace para tus claves de auth
+  const SB_NS = "guia-tel";
+  const LS_KEY = `${SB_NS}:ls`; // storageKey cuando usas localStorage (Recordarme)
+  const SS_KEY = `${SB_NS}:ss`; // storageKey cuando usas sessionStorage (sin Recordarme)
+  const DEFAULT_KEY = "sb-";    // por si ya hubieran quedado claves antiguas
+
+  function makeClient(storage, storageKey) {
     return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: { persistSession: true, autoRefreshToken: true, storage }
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        storage,
+        storageKey
+      }
     });
   }
-  function hasSupabaseKeys(storage){
-    try { return Object.keys(storage).some(k => k.startsWith("sb-")); }
+
+  function hasKeysWithPrefix(storage, prefix){
+    try { return Object.keys(storage).some(k => k.startsWith(prefix)); }
     catch { return false; }
   }
-  // Usa el storage que ya tenga sesión (localStorage > sessionStorage). Si no hay, usa localStorage.
-  const initialStorage = hasSupabaseKeys(localStorage) ? localStorage
-                      : hasSupabaseKeys(sessionStorage) ? sessionStorage
-                      : localStorage;
 
-  let sb = makeClient(initialStorage);
+  // Decide con qué storage arrancar:
+  // - Si hay claves en localStorage (LS_KEY o DEFAULT_KEY), usa local
+  // - Si no, y hay en sessionStorage (SS_KEY o DEFAULT_KEY), usa session
+  // - Si no hay ninguna, usa local por defecto
+  const initialIsLocal =
+    hasKeysWithPrefix(localStorage, LS_KEY) ||
+    (!hasKeysWithPrefix(sessionStorage, SS_KEY) &&
+     (hasKeysWithPrefix(localStorage, DEFAULT_KEY) || !hasKeysWithPrefix(sessionStorage, DEFAULT_KEY)));
+
+  const initialStorage    = initialIsLocal ? localStorage : sessionStorage;
+  const initialStorageKey = initialIsLocal ? LS_KEY       : SS_KEY;
+
+  // Crea una única instancia global (a prueba de hot-reload)
+  let sb = window.__SB_SINGLETON__ || makeClient(initialStorage, initialStorageKey);
+  window.__SB_SINGLETON__ = sb;
   window.supabase = sb;
 
-  // ---------- Utils UI ----------
+  /* =========================
+     Utils UI / Estado
+     ========================= */
   let currentUser = null;
   let currentEditId = null;
   const DEFAULT_CATEGORIES = ["Siniestros","Grúas","Asistencia","Salud","Administraciones","Contactos","Otros"];
@@ -869,7 +895,9 @@
   function showLogin(){ $('loginBox').style.display="block"; $('registerBox').style.display="none"; }
   function showRegister(){ $('loginBox').style.display="none"; $('registerBox').style.display="block"; $('regUsername')?.classList.remove("invalid"); $('userHintReg')?.classList.remove("show"); }
 
-  // ---------- Auth ----------
+  /* =========================
+     Auth
+     ========================= */
   const normUser = (u)=> (u||"").trim().toLowerCase();
 
   async function register(){
@@ -882,6 +910,7 @@
     showLogin();
   }
 
+  // (Opcional) Si tienes una RPC user_exists(email_input text)
   async function checkUserExists(email){
     try{
       const { data, error } = await sb.rpc('user_exists', { email_input: email });
@@ -923,26 +952,44 @@
 
   async function login() {
     const email = normUser(document.getElementById("username").value);
-    const password = document.getElementById("password").value;
+    const password = document.getElementById("password").value);
     const keep = document.getElementById("keepSession")?.checked !== false;
 
     if (!email || !password) { alert("Completa usuario y contraseña."); return; }
 
-    // Re-crear cliente con el storage elegido por el usuario
-    sb = makeClient(keep ? localStorage : sessionStorage);
+    // Limpia listener del cliente actual
+    try { authSubscription?.unsubscribe(); } catch {}
+
+    // Limpia restos del otro storageKey para que no convivan dos sesiones
+    try {
+      const otherKeyPrefix = keep ? SS_KEY : LS_KEY;
+      const otherStorage   = keep ? sessionStorage : localStorage;
+      Object.keys(otherStorage)
+        .filter(k => k.startsWith(otherKeyPrefix) || k.startsWith(DEFAULT_KEY))
+        .forEach(k => otherStorage.removeItem(k));
+    } catch {}
+
+    // Recrea cliente con storage adecuado y storageKey específica
+    const nextStorage    = keep ? localStorage : sessionStorage;
+    const nextStorageKey = keep ? LS_KEY       : SS_KEY;
+    sb = makeClient(nextStorage, nextStorageKey);
+    window.__SB_SINGLETON__ = sb;
     window.supabase = sb;
+
+    // Reengancha listener
     bindAuthListener();
 
-    try { await sb.auth.signOut({ scope: 'local' }); } catch {}
+    // (Opcional) comprobar existencia vía RPC sin bloquear si no existe
+    try {
+      const exists = await checkUserExists(email);
+      if (exists === false) { alert("El usuario no existe. Por favor, regístrate."); return; }
+    } catch {}
 
-    let exists = null;
-    try { exists = await checkUserExists(email); } catch { exists = null; }
-    if (exists === false) { alert("El usuario no existe. Por favor, regístrate."); return; }
-
+    // Iniciar sesión
     const { data, error } = await sb.auth.signInWithPassword({ email, password });
     if (error) {
       alert(error.message?.toLowerCase().includes("invalid")
-        ? (exists === true ? "Contraseña incorrecta." : "El usuario no existe o la contraseña es incorrecta.")
+        ? "El usuario no existe o la contraseña es incorrecta."
         : ("No se pudo iniciar sesión: " + error.message));
       return;
     }
@@ -982,7 +1029,9 @@
 
   window.addEventListener('beforeunload', () => { try { authSubscription?.unsubscribe(); } catch {} });
 
-  // ---------- Contactos ----------
+  /* =========================
+     Contactos
+     ========================= */
   function resetForm(){
     currentEditId=null;
     ['contactName','contactPhone','contactEmail','contactCodigo'].forEach(id=>$(id).value='');
@@ -1092,7 +1141,9 @@
     }
   }
 
-  // ---------- Recordatorios ----------
+  /* =========================
+     Recordatorios
+     ========================= */
   async function sbUser(){ const { data:{ user }, error } = await sb.auth.getUser(); if(error) throw error; if(!user) throw new Error("No hay usuario autenticado."); return user; }
   async function addReminder({ message, whenTs, repeat }){ const user=await sbUser(); const whenIso=new Date(whenTs).toISOString(); const { data, error }=await sb.from("reminders").insert({ user_id:user.id, message, when_ts:whenIso, repeat:!!repeat, active:true }).select("id").single(); if(error){ alert("No se pudo guardar el recordatorio: "+error.message); throw error; } return data.id; }
   async function getMyReminders(){ const user=await sbUser(); const { data, error }=await sb.from("reminders").select("id, message, when_ts, repeat, active").eq("user_id", user.id).order("when_ts", { ascending:true }); if(error){ alert("Error cargando recordatorios: "+error.message); return []; } return data.map(r=>({ id:r.id, message:r.message, repeat:r.repeat, active:r.active, whenTs:new Date(r.when_ts).getTime() })); }
@@ -1108,12 +1159,17 @@
   async function stopRepeatForCurrent(){ if(currentPopupReminderId==null){ $('reminderPopup').style.display='none'; return; } const list=await getMyReminders(); const rem=list.find(x=>x.id===currentPopupReminderId); if(rem){ rem.active=false; await updateReminder(rem); const e=reminderTimers.get(rem.id); if(e){ if(e.timeoutId) clearTimeout(e.timeoutId); if(e.intervalId) clearInterval(e.intervalId); } reminderTimers.delete(rem.id); await refreshRemindersTable(); } $('reminderPopup').style.display='none'; currentPopupReminderId=null; }
   async function requestNotificationsViaCheckbox(e){ if(!e.target.checked) return; if(!('Notification' in window)){ alert('Este navegador no soporta notificaciones.'); e.target.checked=false; return; } if(Notification.permission==='granted'){ toast('Notificaciones activadas'); return; } try{ const perm=await Notification.requestPermission(); if(perm==='granted') toast('Notificaciones permitidas'); else { alert('Notificaciones no permitidas.'); e.target.checked=false; } } catch{ e.target.checked=false; alert('No se pudo solicitar permiso.'); } }
 
+  /* =========================
+     Export/Import
+     ========================= */
   async function exportDB(){ if(!currentUser){ alert("Inicia sesión primero."); return; } const [contactsRes, remindersRes] = await Promise.all([ sb.from('contacts').select('*').eq('user_id', currentUser.id), sb.from('reminders').select('*').eq('user_id', currentUser.id) ]); const contacts = contactsRes.data || []; const reminders = remindersRes.data || []; const data = { meta: { app: "GuiaTelefonica", version: 2, exportedAt: new Date().toISOString(), user: currentUser.email }, contacts, reminders }; const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `guia_telefonica_${currentUser.email}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); }
   async function importDBFromText(jsonText){ try{ if(!currentUser){ alert("Inicia sesión primero."); return; } let data; try{ data=JSON.parse(jsonText); }catch{ alert("JSON inválido."); return; } let contactsRaw=Array.isArray(data.contacts)?data.contacts:[]; let remindersRaw=Array.isArray(data.reminders)?data.reminders:[]; const contactsToInsert=[]; const seen=new Set(); for(const c of contactsRaw){ if(c.is_global===true || c.owner==="admin") continue; const name=(c.name??"").trim(); const phone=(c.phone??"").trim(); const email=(c.email??"").trim(); const category=(c.category??"").trim(); const codigo=(c.codigo??"").trim(); if(!name) continue; const key=[name,phone,email,category,codigo].join("|").toLowerCase(); if(seen.has(key)) continue; seen.add(key); contactsToInsert.push({ user_id: currentUser.id, name, phone, email, category, codigo }); } const remindersToInsert=[]; for(const r of remindersRaw){ const message=(r.message??"").trim(); if(!message) continue; let whenIso; if(r.when_ts){ const t=new Date(r.when_ts); if(isNaN(t.getTime())) continue; whenIso=t.toISOString(); } else if(r.whenTs){ const t=new Date(typeof r.whenTs==="number"?r.whenTs:Date.parse(r.whenTs)); if(isNaN(t.getTime())) continue; whenIso=t.toISOString(); } else continue; remindersToInsert.push({ user_id: currentUser.id, message, when_ts: whenIso, repeat: !!r.repeat, active: typeof r.active==="boolean"? r.active : true }); } async function batchInsert(table, rows, size=500){ for(let i=0;i<rows.length;i+=size){ const slice=rows.slice(i,i+size); const { error }=await sb.from(table).insert(slice); if(error) throw new Error(`${table}: ${error.message}`); } } if(contactsToInsert.length) await batchInsert("contacts", contactsToInsert); if(remindersToInsert.length) await batchInsert("reminders", remindersToInsert); await refreshList(); await refreshRemindersTable(); clearAllReminderTimers(); await loadAndScheduleReminders(); toast(`Importación completada: ${contactsToInsert.length} contactos, ${remindersToInsert.length} recordatorios.`); }catch(err){ console.error(err); alert("Error importando: " + (err?.message || err)); } }
 
   function clearAllReminderTimers(){ for(const e of reminderTimers.values()){ try{ if(e.timeoutId) clearTimeout(e.timeoutId); if(e.intervalId) clearInterval(e.intervalId); }catch{} } reminderTimers.clear(); }
 
-  // ---------- DOMContentLoaded: listeners + sesión inicial ----------
+  /* =========================
+     DOMContentLoaded: listeners + sesión inicial
+     ========================= */
   window.addEventListener('DOMContentLoaded', () => {
     // Formularios
     $('loginForm')?.addEventListener('submit', (e)=>{ e.preventDefault(); login(); });
@@ -1168,7 +1224,7 @@
     });
     $('importFile')?.addEventListener('change', async (e)=>{ const file=e.target.files?.[0]; if(!file) return; const text=await file.text(); await importDBFromText(text); });
 
-    // Estado inicial “a prueba de sesiones zombie”
+    // Estado inicial: intenta recuperar sesión existente y mostrar la app
     (async () => {
       try {
         const { data: { session }, error } = await sb.auth.getSession();
@@ -1178,7 +1234,7 @@
           try {
             await sb.auth.refreshSession(); // valida/renueva
             currentUser = session.user;
-            await afterAuth();              // muestra la app
+            await afterAuth();              // muestra la app (lista, formulario, botones)
             return;
           } catch (e) {
             await sb.auth.signOut({ scope: 'local' }).catch(()=>{});
@@ -1193,6 +1249,7 @@
     })();
   });
 </script>
+
 
 
 
