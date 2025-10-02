@@ -827,24 +827,31 @@
       </table>
     </fieldset>
   </div>
-<script type="module">
+  <script type="module">
   import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
   const SUPABASE_URL = "https://euejoapezqbflobpdklk.supabase.co";
   const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZWpvYXBlenFiZmxvYnBka2xrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0MTU0MTMsImV4cCI6MjA3Mjk5MTQxM30.BwK_NSGHOFjjitsjdJy0cCo9TQSwd49UjL5FoEOoaB4";
 
-  // Crea un cliente Supabase con el almacenamiento indicado
+  // ---------- Cliente Supabase ----------
   function makeClient(storage) {
     return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, storage }
     });
   }
+  function hasSupabaseKeys(storage){
+    try { return Object.keys(storage).some(k => k.startsWith("sb-")); }
+    catch { return false; }
+  }
+  // Usa el storage que ya tenga sesión (localStorage > sessionStorage). Si no hay, usa localStorage.
+  const initialStorage = hasSupabaseKeys(localStorage) ? localStorage
+                      : hasSupabaseKeys(sessionStorage) ? sessionStorage
+                      : localStorage;
 
-  // Cliente por defecto (recuerda sesión con localStorage)
-  let sb = makeClient(localStorage);
+  let sb = makeClient(initialStorage);
   window.supabase = sb;
 
-  /* ---------------- Utils UI ---------------- */
+  // ---------- Utils UI ----------
   let currentUser = null;
   let currentEditId = null;
   const DEFAULT_CATEGORIES = ["Siniestros","Grúas","Asistencia","Salud","Administraciones","Contactos","Otros"];
@@ -862,7 +869,7 @@
   function showLogin(){ $('loginBox').style.display="block"; $('registerBox').style.display="none"; }
   function showRegister(){ $('loginBox').style.display="none"; $('registerBox').style.display="block"; $('regUsername')?.classList.remove("invalid"); $('userHintReg')?.classList.remove("show"); }
 
-  /* ---------------- Auth ---------------- */
+  // ---------- Auth ----------
   const normUser = (u)=> (u||"").trim().toLowerCase();
 
   async function register(){
@@ -875,11 +882,10 @@
     showLogin();
   }
 
-  // (Opcional) Si creaste una RPC user_exists(email_input text)
   async function checkUserExists(email){
     try{
       const { data, error } = await sb.rpc('user_exists', { email_input: email });
-      if(error) return null; // no cortar el flujo si no existe la RPC
+      if(error) return null;
       return !!data;
     }catch{ return null; }
   }
@@ -922,15 +928,13 @@
 
     if (!email || !password) { alert("Completa usuario y contraseña."); return; }
 
-    // Re-crear el cliente con el storage correcto
+    // Re-crear cliente con el storage elegido por el usuario
     sb = makeClient(keep ? localStorage : sessionStorage);
     window.supabase = sb;
     bindAuthListener();
 
-    // Limpieza local por si quedó algo corrupto
     try { await sb.auth.signOut({ scope: 'local' }); } catch {}
 
-    // (opcional) comprobar existencia vía RPC
     let exists = null;
     try { exists = await checkUserExists(email); } catch { exists = null; }
     if (exists === false) { alert("El usuario no existe. Por favor, regístrate."); return; }
@@ -949,8 +953,6 @@
   async function sendResetLink(){
     const email = normUser($("username").value);
     if(!email){ alert("Escribe tu email en 'Usuario' y vuelve a pulsar '¿Olvidaste tu contraseña?'"); return; }
-
-    // IMPORTANTE: añade esta URL en Supabase → Authentication → URL configuration → Redirect URLs
     const redirectTo = `${window.location.origin}/#/recuperar`;
     const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
     if(error){ alert("No se pudo enviar el correo: " + error.message); return; }
@@ -978,10 +980,9 @@
     showOverlay('welcomePopup', true);
   }
 
-  // Limpia el listener al cerrar la pestaña (opcional)
   window.addEventListener('beforeunload', () => { try { authSubscription?.unsubscribe(); } catch {} });
 
-  /* ---------------- Contactos & Recordatorios (tus funciones actuales) ---------------- */
+  // ---------- Contactos ----------
   function resetForm(){
     currentEditId=null;
     ['contactName','contactPhone','contactEmail','contactCodigo'].forEach(id=>$(id).value='');
@@ -1091,7 +1092,7 @@
     }
   }
 
-  // ---- Recordatorios (idéntico a tu versión, mantenido) ----
+  // ---------- Recordatorios ----------
   async function sbUser(){ const { data:{ user }, error } = await sb.auth.getUser(); if(error) throw error; if(!user) throw new Error("No hay usuario autenticado."); return user; }
   async function addReminder({ message, whenTs, repeat }){ const user=await sbUser(); const whenIso=new Date(whenTs).toISOString(); const { data, error }=await sb.from("reminders").insert({ user_id:user.id, message, when_ts:whenIso, repeat:!!repeat, active:true }).select("id").single(); if(error){ alert("No se pudo guardar el recordatorio: "+error.message); throw error; } return data.id; }
   async function getMyReminders(){ const user=await sbUser(); const { data, error }=await sb.from("reminders").select("id, message, when_ts, repeat, active").eq("user_id", user.id).order("when_ts", { ascending:true }); if(error){ alert("Error cargando recordatorios: "+error.message); return []; } return data.map(r=>({ id:r.id, message:r.message, repeat:r.repeat, active:r.active, whenTs:new Date(r.when_ts).getTime() })); }
@@ -1112,7 +1113,7 @@
 
   function clearAllReminderTimers(){ for(const e of reminderTimers.values()){ try{ if(e.timeoutId) clearTimeout(e.timeoutId); if(e.intervalId) clearInterval(e.intervalId); }catch{} } reminderTimers.clear(); }
 
-  /* ---------------- DOMContentLoaded: engancha listeners ---------------- */
+  // ---------- DOMContentLoaded: listeners + sesión inicial ----------
   window.addEventListener('DOMContentLoaded', () => {
     // Formularios
     $('loginForm')?.addEventListener('submit', (e)=>{ e.preventDefault(); login(); });
@@ -1175,24 +1176,24 @@
 
         if (session?.user) {
           try {
-            // Fuerza un refresh inmediato; si peta, limpiamos.
-            await sb.auth.refreshSession();
+            await sb.auth.refreshSession(); // valida/renueva
             currentUser = session.user;
-            await afterAuth();
+            await afterAuth();              // muestra la app
             return;
           } catch (e) {
-            // refresh falló: limpiamos local y mostramos login
             await sb.auth.signOut({ scope: 'local' }).catch(()=>{});
           }
         }
       } catch {}
 
+      // Si no hay sesión, mostrar login
       currentUser = null;
       showLogin();
       $('app').style.display = 'none';
     })();
   });
 </script>
+
 
 
 </body>
