@@ -656,7 +656,7 @@
 
       <a id="linkGoRegister" href="#" class="muted" style="margin-left:8px;">Registrarse</a>
       <br>
-      
+
     </form>
 
     <div style="margin-top:6px;">
@@ -784,398 +784,405 @@
       </table>
     </fieldset>
   </div>
-<script type="module">
-  import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+  <script type="module">
+    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-  const SUPABASE_URL = "https://euejoapezqbflobpdklk.supabase.co";
-  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZWpvYXBlenFiZmxvYnBka2xrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0MTU0MTMsImV4cCI6MjA3Mjk5MTQxM30.BwK_NSGHOFjjitsjdJy0cCo9TQSwd49UjL5FoEOoaB4";
+    const SUPABASE_URL = "https://euejoapezqbflobpdklk.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZWpvYXBlenFiZmxvYnBka2xrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0MTU0MTMsImV4cCI6MjA3Mjk5MTQxM30.BwK_NSGHOFjjitsjdJy0cCo9TQSwd49UjL5FoEOoaB4";
 
-  /* =========================
-     Supabase: Singleton (solo sessionStorage)
-     ========================= */
-  const SB_NS = "guia-tel";
-  const SS_KEY = `${SB_NS}:ss`; // storageKey fijo para sessionStorage
+    /* =========================
+       Supabase: Singleton (solo sessionStorage)
+       ========================= */
+    const SB_NS = "guia-tel";
+    const SS_KEY = `${SB_NS}:ss`; // storageKey fijo para sessionStorage
 
-  function makeClient() {
-    return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        storage: sessionStorage,
-        storageKey: SS_KEY
-      }
-    });
-  }
-
-  // Única instancia global
-  let sb = window.__SB_SINGLETON__ || makeClient();
-  window.__SB_SINGLETON__ = sb;
-  window.supabase = sb;
-
-  /* =========================
-     Utils UI / Estado
-     ========================= */
-  let currentUser = null;
-  let currentEditId = null;
-  const DEFAULT_CATEGORIES = ["Siniestros","Grúas","Asistencia","Salud","Administraciones","Contactos","Otros"];
-  const reminderTimers = new Map(); let currentPopupReminderId = null;
-
-  const $ = (id) => document.getElementById(id);
-  const toast = (msg, ms=1200) => { const t=$('toast'); if(!t) return; t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), ms); };
-  const showOverlay = (id, show=true) => { const el=$(id); if(el) el.style.display = show ? 'flex' : 'none'; };
-  const setInvalid = (el,hint,inv)=>{ if(!el) return; el.classList.toggle('invalid',!!inv); if(hint) hint.classList.toggle('show',!!inv); };
-  const isValidEmail = (v)=> !v || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
-  const isValidPhone = (v)=> !v || /^[0-9+\s\-()]{6,20}$/.test(v.trim());
-  const normalize = (s)=> (s||"").toString().toLowerCase();
-
-  function requireUser(){ if(!currentUser) throw new Error("No hay usuario autenticado"); return currentUser; }
-  function showLogin(){ $('loginBox').style.display="block"; $('registerBox').style.display="none"; }
-  function showRegister(){ $('loginBox').style.display="none"; $('registerBox').style.display="block"; $('regUsername')?.classList.remove("invalid"); $('userHintReg')?.classList.remove("show"); }
-
-  /* =========================
-     Auth
-     ========================= */
-  const normUser = (u)=> (u||"").trim().toLowerCase();
-
-  async function register(){
-    const email = normUser($("regUsername").value);
-    const password = $("regPassword").value;
-    if(!email || !password){ alert("Completa usuario (email) y contraseña."); return; }
-    const { error } = await sb.auth.signUp({ email, password });
-    if(error){ alert("Error al registrar: " + error.message); return; }
-    showOverlay('registerPopup', true);
-    showLogin();
-  }
-
-  // (Opcional) Si tienes una RPC user_exists(email_input text); si no existe no pasa nada
-  async function checkUserExists(email){
-    try{
-      const { data, error } = await sb.rpc('user_exists', { email_input: email });
-      if(error) return null;
-      return !!data;
-    }catch{ return null; }
-  }
-
-  // Suscripción al estado de auth (recreable)
-  let authSubscription = null;
-  function bindAuthListener() {
-    try { authSubscription?.unsubscribe(); } catch {}
-    const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
-      switch(event){
-        case 'SIGNED_IN':
-        case 'TOKEN_REFRESHED':
-        case 'USER_UPDATED':
-          currentUser = session?.user ?? null;
-          await afterAuth();
-          break;
-        case 'PASSWORD_RECOVERY': {
-          const newPassword = prompt("Introduce tu nueva contraseña:");
-          if(!newPassword) return;
-          const { error } = await sb.auth.updateUser({ password: newPassword });
-          if(error){ alert("No se pudo actualizar la contraseña: " + error.message); return; }
-          alert("Contraseña actualizada. Ya puedes iniciar sesión.");
-          break;
+    function makeClient() {
+      return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          storage: sessionStorage,
+          storageKey: SS_KEY
         }
-        case 'SIGNED_OUT':
-          currentUser = null;
-          showLogin();
-          $('app').style.display = 'none';
-          break;
-      }
-    });
-    authSubscription = subscription;
-  }
-  bindAuthListener();
-
-  async function login() {
-    const email = normUser(document.getElementById("username").value);
-    const password = document.getElementById("password").value;
-
-    if (!email || !password) { alert("Completa usuario y contraseña."); return; }
-
-    // (opcional) comprobar existencia vía RPC sin bloquear
-    try {
-      const exists = await checkUserExists(email);
-      if (exists === false) { alert("El usuario no existe. Por favor, regístrate."); return; }
-    } catch {}
-
-    const { data, error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) {
-      alert(error.message?.toLowerCase().includes("invalid")
-        ? "El usuario no existe o la contraseña es incorrecta."
-        : ("No se pudo iniciar sesión: " + error.message));
-      return;
+      });
     }
-    await afterAuth();
-  }
 
-  async function sendResetLink(){
-    const email = normUser($("username").value);
-    if(!email){ alert("Escribe tu email en 'Usuario' y vuelve a pulsar '¿Olvidaste tu contraseña?'"); return; }
-    const redirectTo = `${window.location.origin}/#/recuperar`;
-    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
-    if(error){ alert("No se pudo enviar el correo: " + error.message); return; }
-    alert("Te hemos enviado un email con el enlace para restablecer tu contraseña.");
-  }
+    // Única instancia global
+    let sb = window.__SB_SINGLETON__ || makeClient();
+    window.__SB_SINGLETON__ = sb;
+    window.supabase = sb;
 
-  async function logout(){
-    try{ await sb.auth.signOut(); }catch(e){ alert('No se pudo cerrar sesión: ' + (e?.message || e)); }
-  }
+    /* =========================
+       Utils UI / Estado
+       ========================= */
+    let currentUser = null;
+    let currentEditId = null;
+    const DEFAULT_CATEGORIES = ["Siniestros", "Grúas", "Asistencia", "Salud", "Administraciones", "Contactos", "Otros"];
+    const reminderTimers = new Map(); let currentPopupReminderId = null;
 
-  async function afterAuth(){
-    const { data:{ user } } = await sb.auth.getUser();
-    currentUser = user;
-    if(!currentUser){ showLogin(); return; }
-    $('loginBox').style.display="none";
-    $('registerBox').style.display="none";
-    $('app').style.display="block";
-    $('userName').textContent = user.email || "";
-    resetForm();
-    await ensureCategoryOptions();
-    await refreshList();
-    await refreshRemindersTable();
-    clearAllReminderTimers();
-    await loadAndScheduleReminders();
-    showOverlay('welcomePopup', true);
-  }
+    const $ = (id) => document.getElementById(id);
+    const toast = (msg, ms = 1200) => { const t = $('toast'); if (!t) return; t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), ms); };
+    const showOverlay = (id, show = true) => { const el = $(id); if (el) el.style.display = show ? 'flex' : 'none'; };
+    const setInvalid = (el, hint, inv) => { if (!el) return; el.classList.toggle('invalid', !!inv); if (hint) hint.classList.toggle('show', !!inv); };
+    const isValidEmail = (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
+    const isValidPhone = (v) => !v || /^[0-9+\s\-()]{6,20}$/.test(v.trim());
+    const normalize = (s) => (s || "").toString().toLowerCase();
 
-  window.addEventListener('beforeunload', () => { try { authSubscription?.unsubscribe(); } catch {} });
+    function requireUser() { if (!currentUser) throw new Error("No hay usuario autenticado"); return currentUser; }
+    function showLogin() { $('loginBox').style.display = "block"; $('registerBox').style.display = "none"; }
+    function showRegister() { $('loginBox').style.display = "none"; $('registerBox').style.display = "block"; $('regUsername')?.classList.remove("invalid"); $('userHintReg')?.classList.remove("show"); }
 
-  /* =========================
-     Contactos
-     ========================= */
-  function resetForm(){
-    currentEditId=null;
-    ['contactName','contactPhone','contactEmail','contactCodigo'].forEach(id=>$(id).value='');
-    $('contactCategory').selectedIndex=0;
-    ['contactName','contactEmail','contactPhone','contactCategory'].forEach(id=>setInvalid($(id),null,false));
-    ['nameHint','emailHint','phoneHint','catHint'].forEach(id=>$(id).classList.remove('show'));
-    $("formLegend").textContent="Agregar contacto"; $("editHint").style.display="none"; $("btnSave").textContent="Guardar";
-  }
+    /* =========================
+       Auth
+       ========================= */
+    const normUser = (u) => (u || "").trim().toLowerCase();
 
-  async function ensureCategoryOptions(){
-    const formSel=$("contactCategory"), filterSel=$("filterCategory");
-    const prevForm=formSel.value, prevFilter=filterSel.value;
-    formSel.innerHTML="";
-    for(const cat of ["",...DEFAULT_CATEGORIES]){ const o=document.createElement("option"); o.value=cat; o.textContent=cat?cat:"— Selecciona —"; formSel.appendChild(o); }
-    filterSel.innerHTML=""; const a=document.createElement("option"); a.value="all"; a.textContent="Todas"; filterSel.appendChild(a);
-    for(const cat of DEFAULT_CATEGORIES){ const o=document.createElement("option"); o.value=cat; o.textContent=cat; filterSel.appendChild(o); }
-    if([...formSel.options].some(o=>o.value===prevForm)) formSel.value=prevForm;
-    if([...filterSel.options].some(o=>o.value===prevFilter)) filterSel.value=prevFilter;
-  }
-
-  function validateContactForm(){
-    const n=$("contactName"), e=$("contactEmail"), t=$("contactPhone"), c=$("contactCategory"); let ok=true;
-    if(!n.value.trim()){ setInvalid(n, $("nameHint"), true); ok=false; } else setInvalid(n, $("nameHint"), false);
-    if(!isValidEmail(e.value)){ setInvalid(e, $("emailHint"), true); ok=false; } else setInvalid(e, $("emailHint"), false);
-    if(!isValidPhone(t.value)){ setInvalid(t, $("phoneHint"), true); ok=false; } else setInvalid(t, $("phoneHint"), false);
-    if(!c.value){ setInvalid(c, $("catHint"), true); ok=false; } else setInvalid(c, $("catHint"), false);
-    return ok;
-  }
-
-  async function saveContact(){
-    if(!validateContactForm()) return;
-    const user = requireUser();
-    const obj = {
-      user_id: user.id,
-      name: $("contactName").value.trim(),
-      phone: $("contactPhone").value.trim(),
-      email: $("contactEmail").value.trim(),
-      category: $("contactCategory").value.trim(),
-      codigo: $("contactCodigo").value.trim()
-    };
-    if(currentEditId==null){
-      const { error } = await sb.from('contacts').insert(obj);
-      if(error){ alert("No se pudo guardar: " + error.message); return; }
-    }else{
-      const { error } = await sb.from('contacts').update(obj).eq('id', Number(currentEditId)).eq('user_id', user.id);
-      if(error){ alert("No se pudo actualizar: " + error.message); return; }
-    }
-    resetForm(); refreshList();
-  }
-
-  async function getContactsForList(){
-    let q = sb.from('contacts').select('*');
-    const fName   = normalize($("filterName").value);
-    const fEmail  = normalize($("filterEmail").value);
-    const fPhone  = normalize($("filterPhone").value);
-    const fCatVal = $("filterCategory").value;
-    if(fName)  q = q.ilike('name', `%${fName}%`);
-    if(fEmail) q = q.ilike('email', `%${fEmail}%`);
-    if(fPhone) q = q.ilike('phone', `%${fPhone}%`);
-    if(fCatVal && fCatVal !== 'all') q = q.eq('category', fCatVal);
-    const { data, error } = await q.order('name', { ascending: true });
-    if(error){ alert("Error listando contactos: " + error.message); return []; }
-    return (data||[]).map(c => ({ ...c, readonly: c.is_global === true }));
-  }
-
-  async function editContact(id){
-    const user = requireUser();
-    const { data, error } = await sb.from('contacts').select('*').eq('id', Number(id)).eq('user_id', user.id).single();
-    if(error){ alert("No se pudo cargar: " + error.message); return; }
-    const c=data;
-    currentEditId=c.id;
-    $("contactName").value=c.name||"";
-    $("contactPhone").value=c.phone||"";
-    $("contactEmail").value=c.email||"";
-    $("contactCodigo").value=c.codigo||"";
-    $("contactCategory").value=(c.category||"");
-    $("formLegend").textContent="Modificar contacto"; $("editHint").style.display="inline"; $("btnSave").textContent="Guardar cambios";
-  }
-
-  async function deleteContact(id){
-    const user = requireUser();
-    if(!confirm("¿Borrar el contacto seleccionado?")) return;
-    const { error } = await sb.from('contacts').delete().eq('id', Number(id)).eq('user_id', user.id);
-    if(error){ alert("No se pudo borrar: " + error.message); return; }
-    if(currentEditId===Number(id)) resetForm();
-    refreshList();
-  }
-
-  async function refreshList(){
-    await ensureCategoryOptions();
-    const tbody=$("contactsTbody"); tbody.innerHTML="";
-    const rows=await getContactsForList();
-    if(rows.length===0){
-      const tr=document.createElement("tr"); const td=document.createElement("td");
-      td.colSpan=6; td.className="muted"; td.textContent="No hay contactos que coincidan.";
-      tr.appendChild(td); tbody.appendChild(tr); return;
-    }
-    for(const c of rows){
-      const tr=document.createElement("tr");
-      const td=(t)=>{ const x=document.createElement("td"); x.textContent=t||""; return x; };
-      tr.appendChild(td(c.name)); tr.appendChild(td(c.phone)); tr.appendChild(td(c.email)); tr.appendChild(td(c.category)); tr.appendChild(td(c.codigo));
-      const tdActions=document.createElement("td");
-      const e=document.createElement("button"); e.id=`btn-edit-${c.id}`; e.textContent="✏️"; e.onclick=()=>editContact(c.id); e.disabled=c.readonly;
-      const d=document.createElement("button"); d.id=`btn-delete-${c.id}`; d.textContent="🗑️"; d.onclick=()=>deleteContact(c.id); d.disabled=c.readonly;
-      tdActions.appendChild(e); tdActions.appendChild(d); tr.appendChild(tdActions);
-      tbody.appendChild(tr);
-    }
-  }
-
-  /* =========================
-     Recordatorios
-     ========================= */
-  async function sbUser(){ const { data:{ user }, error } = await sb.auth.getUser(); if(error) throw error; if(!user) throw new Error("No hay usuario autenticado."); return user; }
-  async function addReminder({ message, whenTs, repeat }){ const user=await sbUser(); const whenIso=new Date(whenTs).toISOString(); const { data, error }=await sb.from("reminders").insert({ user_id:user.id, message, when_ts:whenIso, repeat:!!repeat, active:true }).select("id").single(); if(error){ alert("No se pudo guardar el recordatorio: "+error.message); throw error; } return data.id; }
-  async function getMyReminders(){ const user=await sbUser(); const { data, error }=await sb.from("reminders").select("id, message, when_ts, repeat, active").eq("user_id", user.id).order("when_ts", { ascending:true }); if(error){ alert("Error cargando recordatorios: "+error.message); return []; } return data.map(r=>({ id:r.id, message:r.message, repeat:r.repeat, active:r.active, whenTs:new Date(r.when_ts).getTime() })); }
-  async function updateReminder(rem){ const user=await sbUser(); const payload={ message:rem.message, when_ts:new Date(rem.whenTs).toISOString(), repeat:!!rem.repeat, active:!!rem.active }; const { error }=await sb.from("reminders").update(payload).eq("id", rem.id).eq("user_id", user.id); if(error) alert("No se pudo actualizar recordatorio: "+error.message); }
-  async function deleteReminder(id){ const user=await sbUser(); const { error }=await sb.from("reminders").delete().eq("id", Number(id)).eq("user_id", user.id); if(error) alert("No se pudo borrar recordatorio: "+error.message); }
-  async function refreshRemindersTable(){ const tbody=$("remindersTbody"); tbody.innerHTML=""; const list=await getMyReminders(); list.sort((a,b)=>a.whenTs-b.whenTs); if(list.length===0){ const tr=document.createElement("tr"); const td=document.createElement("td"); td.colSpan=5; td.className="muted"; td.textContent="No hay recordatorios."; tr.appendChild(td); tbody.appendChild(tr); return; } for(const r of list){ const tr=document.createElement("tr"); const when=new Date(r.whenTs); const td=(t)=>{ const x=document.createElement("td"); x.textContent=t; return x; }; tr.appendChild(td(when.toLocaleString())); tr.appendChild(td(r.message)); tr.appendChild(td(r.repeat?"Cada 10 min":"No")); const tdAct=document.createElement("td"); tdAct.innerHTML=r.active?'<span style="color:#065f46;font-weight:600">Activo</span>':'<span style="color:#7c2d12;font-weight:600">Inactivo</span>'; tr.appendChild(tdAct); const tdActions=document.createElement("td"); const tgl=document.createElement("button"); tgl.textContent=r.active?"Desactivar":"Activar"; tgl.onclick=async()=>{ await toggleReminderActive(r.id,!r.active); }; const del=document.createElement("button"); del.textContent="Borrar"; del.style.marginLeft="6px"; del.onclick=async()=>{ const e=reminderTimers.get(r.id); if(e){ if(e.timeoutId) clearTimeout(e.timeoutId); if(e.intervalId) clearInterval(e.intervalId); } reminderTimers.delete(r.id); await deleteReminder(r.id); await refreshRemindersTable(); }; tdActions.appendChild(tgl); tdActions.appendChild(del); tr.appendChild(tdActions); tbody.appendChild(tr); } }
-  function sendSystemNotification(message){ try{ if('Notification'in window && Notification.permission==='granted'){ const n=new Notification('Recordatorio',{body:message}); n.onclick=()=>{ window.focus(); $('reminderPopup').style.display='none'; }; } }catch{} }
-  function scheduleReminderInMemory(rem){ const ex=reminderTimers.get(rem.id); if(ex){ if(ex.timeoutId) clearTimeout(ex.timeoutId); if(ex.intervalId) clearInterval(ex.intervalId); } reminderTimers.delete(rem.id); if(!rem.active) return; const entry={timeoutId:null,intervalId:null}; const trigger=()=>{ currentPopupReminderId=rem.id; sendSystemNotification(rem.message); showReminderPopup(rem.message, rem.repeat); if(rem.repeat && rem.active){ entry.intervalId=setInterval(()=>{ currentPopupReminderId=rem.id; sendSystemNotification(rem.message); showReminderPopup(rem.message,true); }, 10*60*1000); reminderTimers.set(rem.id, entry); } }; const diff=rem.whenTs-Date.now(); if(diff<=0) trigger(); else { entry.timeoutId=setTimeout(trigger,diff); reminderTimers.set(rem.id, entry); } }
-  async function loadAndScheduleReminders(){ const list=await getMyReminders(); for(const r of list) scheduleReminderInMemory(r); }
-  async function toggleReminderActive(id, makeActive){ const e=reminderTimers.get(id); if(e){ if(e.timeoutId) clearTimeout(e.timeoutId); if(e.intervalId) clearInterval(e.intervalId); } reminderTimers.delete(id); const list=await getMyReminders(); const rem=list.find(x=>x.id===id); if(!rem) return; rem.active=makeActive; await updateReminder(rem); if(makeActive) scheduleReminderInMemory(rem); await refreshRemindersTable(); }
-  async function scheduleReminder(){ const date=$('remDate').value, time=$('remTime').value, msg=$('remMsg').value.trim(), repeat=$('remRepeat').checked; if(!date||!time||!msg){ alert('Completa fecha, hora y mensaje.'); return; } const target=new Date(`${date}T${time}`); if(isNaN(target.getTime())) return alert('Fecha u hora no válidas.'); if(target.getTime()<=Date.now()) return alert('La fecha y hora deben ser futuras.'); const id=await addReminder({message:msg, whenTs:target.getTime(), repeat}); const list=await getMyReminders(); const rem=list.find(r=>r.id===id); if(rem) scheduleReminderInMemory(rem); $('reminderStatus').textContent=`Guardado para ${target.toLocaleString()}${repeat?' (cada 10 min)':''}.`; setTimeout(()=>{ showOverlay('reminderFormPopup', false); $('reminderStatus').textContent=''; $('remDate').value=''; $('remTime').value=''; $('remMsg').value=''; $('remRepeat').checked=false; toast('Recordatorio programado'); }, 700); await refreshRemindersTable(); }
-  function showReminderPopup(message,repeating){ $('reminderText').textContent=message; $('reminderPopup').style.display='flex'; $('btnStopRepeat').style.display=repeating?'inline-block':'none'; }
-  async function stopRepeatForCurrent(){ if(currentPopupReminderId==null){ $('reminderPopup').style.display='none'; return; } const list=await getMyReminders(); const rem=list.find(x=>x.id===currentPopupReminderId); if(rem){ rem.active=false; await updateReminder(rem); const e=reminderTimers.get(rem.id); if(e){ if(e.timeoutId) clearTimeout(e.timeoutId); if(e.intervalId) clearInterval(e.intervalId); } reminderTimers.delete(rem.id); await refreshRemindersTable(); } $('reminderPopup').style.display='none'; currentPopupReminderId=null; }
-  
-async function requestNotificationsViaCheckbox(e){
-  if(!e.target.checked) return;
-  if(!('Notification' in window)){
-    alert('Este navegador no soporta notificaciones.');
-    e.target.checked=false;
-    return;
-  }
-  if(Notification.permission==='granted'){
-    toast('Notificaciones activadas');
-    return;
-  }
-  try{
-    const perm = await Notification.requestPermission();
-    if(perm==='granted') toast('Notificaciones permitidas');
-    else {
-      alert('Notificaciones no permitidas.');
-      e.target.checked=false;
-    }
-  } catch {
-    e.target.checked=false;
-    alert('No se pudo solicitar permiso.');
-  }
-} // ← ESTA llave faltaba
-
-  /* =========================
-     Export/Import
-     ========================= */
-  async function exportDB(){ if(!currentUser){ alert("Inicia sesión primero."); return; } const [contactsRes, remindersRes] = await Promise.all([ sb.from('contacts').select('*').eq('user_id', currentUser.id), sb.from('reminders').select('*').eq('user_id', currentUser.id) ]); const contacts = contactsRes.data || []; const reminders = remindersRes.data || []; const data = { meta: { app: "GuiaTelefonica", version: 2, exportedAt: new Date().toISOString(), user: currentUser.email }, contacts, reminders }; const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `guia_telefonica_${currentUser.email}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); }
-  async function importDBFromText(jsonText){ try{ if(!currentUser){ alert("Inicia sesión primero."); return; } let data; try{ data=JSON.parse(jsonText); }catch{ alert("JSON inválido."); return; } let contactsRaw=Array.isArray(data.contacts)?data.contacts:[]; let remindersRaw=Array.isArray(data.reminders)?data.reminders:[]; const contactsToInsert=[]; const seen=new Set(); for(const c of contactsRaw){ if(c.is_global===true || c.owner==="admin") continue; const name=(c.name??"").trim(); const phone=(c.phone??"").trim(); const email=(c.email??"").trim(); const category=(c.category??"").trim(); const codigo=(c.codigo??"").trim(); if(!name) continue; const key=[name,phone,email,category,codigo].join("|").toLowerCase(); if(seen.has(key)) continue; seen.add(key); contactsToInsert.push({ user_id: currentUser.id, name, phone, email, category, codigo }); } const remindersToInsert=[]; for(const r of remindersRaw){ const message=(r.message??"").trim(); if(!message) continue; let whenIso; if(r.when_ts){ const t=new Date(r.when_ts); if(isNaN(t.getTime())) continue; whenIso=t.toISOString(); } else if(r.whenTs){ const t=new Date(typeof r.whenTs==="number"?r.whenTs:Date.parse(r.whenTs)); if(isNaN(t.getTime())) continue; whenIso=t.toISOString(); } else continue; remindersToInsert.push({ user_id: currentUser.id, message, when_ts: whenIso, repeat: !!r.repeat, active: typeof r.active==="boolean"? r.active : true }); } async function batchInsert(table, rows, size=500){ for(let i=0;i<rows.length;i+=size){ const slice=rows.slice(i,i+size); const { error }=await sb.from(table).insert(slice); if(error) throw new Error(`${table}: ${error.message}`); } } if(contactsToInsert.length) await batchInsert("contacts", contactsToInsert); if(remindersToInsert.length) await batchInsert("reminders", remindersToInsert); await refreshList(); await refreshRemindersTable(); clearAllReminderTimers(); await loadAndScheduleReminders(); toast(`Importación completada: ${contactsToInsert.length} contactos, ${remindersToInsert.length} recordatorios.`); }catch(err){ console.error(err); alert("Error importando: " + (err?.message || err)); } }
-
-  function clearAllReminderTimers(){ for(const e of reminderTimers.values()){ try{ if(e.timeoutId) clearTimeout(e.timeoutId); if(e.intervalId) clearInterval(e.intervalId); }catch{} } reminderTimers.clear(); }
-
-  /* =========================
-     DOMContentLoaded
-     ========================= */
-  window.addEventListener('DOMContentLoaded', () => {
-    // Formularios
-    $('loginForm')?.addEventListener('submit', (e)=>{ e.preventDefault(); login(); });
-    $('registerForm')?.addEventListener('submit', (e)=>{ e.preventDefault(); register(); });
-
-    // Links/login
-    $('linkGoRegister')?.addEventListener('click', (e)=>{ e.preventDefault(); showRegister(); });
-    $('btnBackToLogin')?.addEventListener('click', showLogin);
-    $('linkForgot')?.addEventListener('click', (e)=>{ e.preventDefault(); sendResetLink(); });
-
-    // Sesión
-    $('btnLogout')?.addEventListener('click', logout);
-
-    // Recordatorios & varios
-    $('btnOpenRemForm')?.addEventListener('click', async ()=>{ showOverlay('reminderFormPopup', true); await refreshRemindersTable(); });
-    $('btnCancelRemForm')?.addEventListener('click', ()=> showOverlay('reminderFormPopup', false));
-    $('tabFormBtn')?.addEventListener('click', ()=> {});
-    $('tabListBtn')?.addEventListener('click', async ()=>{ await refreshRemindersTable(); });
-    $('notifToggle')?.addEventListener('change', requestNotificationsViaCheckbox);
-    $('btnStartWelcome')?.addEventListener('click', ()=> showOverlay('welcomePopup', false));
-    $('btnSave')?.addEventListener('click', saveContact);
-    $('btnClear')?.addEventListener('click', resetForm);
-
-    // Filtros
-    const debounce=(fn,wait=250)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), wait); }; };
-    $('filterName')?.addEventListener('input', debounce(refreshList,200));
-    $('filterEmail')?.addEventListener('input', debounce(refreshList,200));
-    $('filterPhone')?.addEventListener('input', debounce(refreshList,200));
-    $('filterCategory')?.addEventListener('change', refreshList);
-
-    $('btnScheduleRem')?.addEventListener('click', scheduleReminder);
-    $('btnCloseReminder')?.addEventListener('click', ()=> $('reminderPopup').style.display='none');
-    $('btnStopRepeat')?.addEventListener('click', stopRepeatForCurrent);
-    $('accordionFilterBtn')?.addEventListener('click', ()=> {
-      const btn=$('accordionFilterBtn'), c=$('accordionFilterContent'), ch=$('chevronFilter');
-      const exp=btn.getAttribute('aria-expanded')==='true';
-      c.style.maxHeight = exp ? '0px' : (c.scrollHeight+'px');
-      btn.setAttribute('aria-expanded', String(!exp));
-      ch.classList.toggle('up', !exp);
-      ch.textContent = !exp ? '▲' : '▼';
-    });
-
-    $('btnExport')?.addEventListener('click', exportDB);
-    $('btnImport')?.addEventListener('click', async ()=>{
-      if (window.showOpenFilePicker) {
-        try {
-          const [handle] = await showOpenFilePicker({ multiple:false, types:[{ description:"JSON", accept:{ "application/json": [".json"] } }] });
-          const file = await handle.getFile(); const text = await file.text(); await importDBFromText(text); return;
-        } catch (err) { if (err?.name === "AbortError") return; }
-      }
-      const inp = $('importFile'); if (inp){ inp.value=""; inp.click(); }
-    });
-    $('importFile')?.addEventListener('change', async (e)=>{ const file=e.target.files?.[0]; if(!file) return; const text=await file.text(); await importDBFromText(text); });
-
-    // Intento de sesión previa en esta pestaña (sessionStorage)
-    (async () => {
-      try {
-        const { data: { session }, error } = await sb.auth.getSession();
-        if (error) throw error;
-        if (session?.user) {
-          currentUser = session.user;
-          await afterAuth();
-          return;
-        }
-      } catch {}
-      currentUser = null;
+    async function register() {
+      const email = normUser($("regUsername").value);
+      const password = $("regPassword").value;
+      if (!email || !password) { alert("Completa usuario (email) y contraseña."); return; }
+      const { error } = await sb.auth.signUp({ email, password });
+      if (error) { alert("Error al registrar: " + error.message); return; }
+      showOverlay('registerPopup', true);
       showLogin();
-      $('app').style.display = 'none';
-    })();
-  });
-</script>
+    }
+
+    // (Opcional) Si tienes una RPC user_exists(email_input text); si no existe no pasa nada
+    async function checkUserExists(email) {
+      try {
+        const { data, error } = await sb.rpc('user_exists', { email_input: email });
+        if (error) return null;
+        return !!data;
+      } catch { return null; }
+    }
+
+    // Suscripción al estado de auth (recreable)
+    let authSubscription = null;
+    function bindAuthListener() {
+      try { authSubscription?.unsubscribe(); } catch { }
+      const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
+        switch (event) {
+          case 'SIGNED_IN':
+          case 'TOKEN_REFRESHED':
+          case 'USER_UPDATED':
+            currentUser = session?.user ?? null;
+            await afterAuth();
+            break;
+          case 'PASSWORD_RECOVERY': {
+            const newPassword = prompt("Introduce tu nueva contraseña:");
+            if (!newPassword) return;
+            const { error } = await sb.auth.updateUser({ password: newPassword });
+            if (error) { alert("No se pudo actualizar la contraseña: " + error.message); return; }
+            alert("Contraseña actualizada. Ya puedes iniciar sesión.");
+            break;
+          }
+          case 'SIGNED_OUT':
+            currentUser = null;
+            clearAllReminderTimers(); // <- aquí
+            showLogin();
+            $('app').style.display = 'none';
+            break;
+
+        });
+      authSubscription = subscription;
+    }
+    bindAuthListener();
+
+    async function login() {
+      const email = normUser(document.getElementById("username").value);
+      const password = document.getElementById("password").value;
+
+      if (!email || !password) { alert("Completa usuario y contraseña."); return; }
+
+      // (opcional) comprobar existencia vía RPC sin bloquear
+      try {
+        const exists = await checkUserExists(email);
+        if (exists === false) { alert("El usuario no existe. Por favor, regístrate."); return; }
+      } catch { }
+
+      const { data, error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) {
+        alert(error.message?.toLowerCase().includes("invalid")
+          ? "El usuario no existe o la contraseña es incorrecta."
+          : ("No se pudo iniciar sesión: " + error.message));
+        return;
+      }
+      await afterAuth();
+    }
+
+    async function sendResetLink() {
+      const email = normUser($("username").value);
+      if (!email) { alert("Escribe tu email en 'Usuario' y vuelve a pulsar '¿Olvidaste tu contraseña?'"); return; }
+      const redirectTo = `${window.location.origin}/#/recuperar`;
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
+      if (error) { alert("No se pudo enviar el correo: " + error.message); return; }
+      alert("Te hemos enviado un email con el enlace para restablecer tu contraseña.");
+    }
+
+    async function logout() {
+      try {
+        clearAllReminderTimers(); // <- limpiar recordatorios en memoria
+        await sb.auth.signOut();
+      } catch (e) {
+        alert('No se pudo cerrar sesión: ' + (e?.message || e));
+      }
+    }
+
+
+    async function afterAuth() {
+      const { data: { user } } = await sb.auth.getUser();
+      currentUser = user;
+      if (!currentUser) { showLogin(); return; }
+      $('loginBox').style.display = "none";
+      $('registerBox').style.display = "none";
+      $('app').style.display = "block";
+      $('userName').textContent = user.email || "";
+      resetForm();
+      await ensureCategoryOptions();
+      await refreshList();
+      await refreshRemindersTable();
+      clearAllReminderTimers();
+      await loadAndScheduleReminders();
+      showOverlay('welcomePopup', true);
+    }
+
+    window.addEventListener('beforeunload', () => { try { authSubscription?.unsubscribe(); } catch { } });
+
+    /* =========================
+       Contactos
+       ========================= */
+    function resetForm() {
+      currentEditId = null;
+      ['contactName', 'contactPhone', 'contactEmail', 'contactCodigo'].forEach(id => $(id).value = '');
+      $('contactCategory').selectedIndex = 0;
+      ['contactName', 'contactEmail', 'contactPhone', 'contactCategory'].forEach(id => setInvalid($(id), null, false));
+      ['nameHint', 'emailHint', 'phoneHint', 'catHint'].forEach(id => $(id).classList.remove('show'));
+      $("formLegend").textContent = "Agregar contacto"; $("editHint").style.display = "none"; $("btnSave").textContent = "Guardar";
+    }
+
+    async function ensureCategoryOptions() {
+      const formSel = $("contactCategory"), filterSel = $("filterCategory");
+      const prevForm = formSel.value, prevFilter = filterSel.value;
+      formSel.innerHTML = "";
+      for (const cat of ["", ...DEFAULT_CATEGORIES]) { const o = document.createElement("option"); o.value = cat; o.textContent = cat ? cat : "— Selecciona —"; formSel.appendChild(o); }
+      filterSel.innerHTML = ""; const a = document.createElement("option"); a.value = "all"; a.textContent = "Todas"; filterSel.appendChild(a);
+      for (const cat of DEFAULT_CATEGORIES) { const o = document.createElement("option"); o.value = cat; o.textContent = cat; filterSel.appendChild(o); }
+      if ([...formSel.options].some(o => o.value === prevForm)) formSel.value = prevForm;
+      if ([...filterSel.options].some(o => o.value === prevFilter)) filterSel.value = prevFilter;
+    }
+
+    function validateContactForm() {
+      const n = $("contactName"), e = $("contactEmail"), t = $("contactPhone"), c = $("contactCategory"); let ok = true;
+      if (!n.value.trim()) { setInvalid(n, $("nameHint"), true); ok = false; } else setInvalid(n, $("nameHint"), false);
+      if (!isValidEmail(e.value)) { setInvalid(e, $("emailHint"), true); ok = false; } else setInvalid(e, $("emailHint"), false);
+      if (!isValidPhone(t.value)) { setInvalid(t, $("phoneHint"), true); ok = false; } else setInvalid(t, $("phoneHint"), false);
+      if (!c.value) { setInvalid(c, $("catHint"), true); ok = false; } else setInvalid(c, $("catHint"), false);
+      return ok;
+    }
+
+    async function saveContact() {
+      if (!validateContactForm()) return;
+      const user = requireUser();
+      const obj = {
+        user_id: user.id,
+        name: $("contactName").value.trim(),
+        phone: $("contactPhone").value.trim(),
+        email: $("contactEmail").value.trim(),
+        category: $("contactCategory").value.trim(),
+        codigo: $("contactCodigo").value.trim()
+      };
+      if (currentEditId == null) {
+        const { error } = await sb.from('contacts').insert(obj);
+        if (error) { alert("No se pudo guardar: " + error.message); return; }
+      } else {
+        const { error } = await sb.from('contacts').update(obj).eq('id', Number(currentEditId)).eq('user_id', user.id);
+        if (error) { alert("No se pudo actualizar: " + error.message); return; }
+      }
+      resetForm(); refreshList();
+    }
+
+    async function getContactsForList() {
+      let q = sb.from('contacts').select('*');
+      const fName = normalize($("filterName").value);
+      const fEmail = normalize($("filterEmail").value);
+      const fPhone = normalize($("filterPhone").value);
+      const fCatVal = $("filterCategory").value;
+      if (fName) q = q.ilike('name', `%${fName}%`);
+      if (fEmail) q = q.ilike('email', `%${fEmail}%`);
+      if (fPhone) q = q.ilike('phone', `%${fPhone}%`);
+      if (fCatVal && fCatVal !== 'all') q = q.eq('category', fCatVal);
+      const { data, error } = await q.order('name', { ascending: true });
+      if (error) { alert("Error listando contactos: " + error.message); return []; }
+      return (data || []).map(c => ({ ...c, readonly: c.is_global === true }));
+    }
+
+    async function editContact(id) {
+      const user = requireUser();
+      const { data, error } = await sb.from('contacts').select('*').eq('id', Number(id)).eq('user_id', user.id).single();
+      if (error) { alert("No se pudo cargar: " + error.message); return; }
+      const c = data;
+      currentEditId = c.id;
+      $("contactName").value = c.name || "";
+      $("contactPhone").value = c.phone || "";
+      $("contactEmail").value = c.email || "";
+      $("contactCodigo").value = c.codigo || "";
+      $("contactCategory").value = (c.category || "");
+      $("formLegend").textContent = "Modificar contacto"; $("editHint").style.display = "inline"; $("btnSave").textContent = "Guardar cambios";
+    }
+
+    async function deleteContact(id) {
+      const user = requireUser();
+      if (!confirm("¿Borrar el contacto seleccionado?")) return;
+      const { error } = await sb.from('contacts').delete().eq('id', Number(id)).eq('user_id', user.id);
+      if (error) { alert("No se pudo borrar: " + error.message); return; }
+      if (currentEditId === Number(id)) resetForm();
+      refreshList();
+    }
+
+    async function refreshList() {
+      await ensureCategoryOptions();
+      const tbody = $("contactsTbody"); tbody.innerHTML = "";
+      const rows = await getContactsForList();
+      if (rows.length === 0) {
+        const tr = document.createElement("tr"); const td = document.createElement("td");
+        td.colSpan = 6; td.className = "muted"; td.textContent = "No hay contactos que coincidan.";
+        tr.appendChild(td); tbody.appendChild(tr); return;
+      }
+      for (const c of rows) {
+        const tr = document.createElement("tr");
+        const td = (t) => { const x = document.createElement("td"); x.textContent = t || ""; return x; };
+        tr.appendChild(td(c.name)); tr.appendChild(td(c.phone)); tr.appendChild(td(c.email)); tr.appendChild(td(c.category)); tr.appendChild(td(c.codigo));
+        const tdActions = document.createElement("td");
+        const e = document.createElement("button"); e.id = `btn-edit-${c.id}`; e.textContent = "✏️"; e.onclick = () => editContact(c.id); e.disabled = c.readonly;
+        const d = document.createElement("button"); d.id = `btn-delete-${c.id}`; d.textContent = "🗑️"; d.onclick = () => deleteContact(c.id); d.disabled = c.readonly;
+        tdActions.appendChild(e); tdActions.appendChild(d); tr.appendChild(tdActions);
+        tbody.appendChild(tr);
+      }
+    }
+
+    /* =========================
+       Recordatorios
+       ========================= */
+    async function sbUser() { const { data: { user }, error } = await sb.auth.getUser(); if (error) throw error; if (!user) throw new Error("No hay usuario autenticado."); return user; }
+    async function addReminder({ message, whenTs, repeat }) { const user = await sbUser(); const whenIso = new Date(whenTs).toISOString(); const { data, error } = await sb.from("reminders").insert({ user_id: user.id, message, when_ts: whenIso, repeat: !!repeat, active: true }).select("id").single(); if (error) { alert("No se pudo guardar el recordatorio: " + error.message); throw error; } return data.id; }
+    async function getMyReminders() { const user = await sbUser(); const { data, error } = await sb.from("reminders").select("id, message, when_ts, repeat, active").eq("user_id", user.id).order("when_ts", { ascending: true }); if (error) { alert("Error cargando recordatorios: " + error.message); return []; } return data.map(r => ({ id: r.id, message: r.message, repeat: r.repeat, active: r.active, whenTs: new Date(r.when_ts).getTime() })); }
+    async function updateReminder(rem) { const user = await sbUser(); const payload = { message: rem.message, when_ts: new Date(rem.whenTs).toISOString(), repeat: !!rem.repeat, active: !!rem.active }; const { error } = await sb.from("reminders").update(payload).eq("id", rem.id).eq("user_id", user.id); if (error) alert("No se pudo actualizar recordatorio: " + error.message); }
+    async function deleteReminder(id) { const user = await sbUser(); const { error } = await sb.from("reminders").delete().eq("id", Number(id)).eq("user_id", user.id); if (error) alert("No se pudo borrar recordatorio: " + error.message); }
+    async function refreshRemindersTable() { const tbody = $("remindersTbody"); tbody.innerHTML = ""; const list = await getMyReminders(); list.sort((a, b) => a.whenTs - b.whenTs); if (list.length === 0) { const tr = document.createElement("tr"); const td = document.createElement("td"); td.colSpan = 5; td.className = "muted"; td.textContent = "No hay recordatorios."; tr.appendChild(td); tbody.appendChild(tr); return; } for (const r of list) { const tr = document.createElement("tr"); const when = new Date(r.whenTs); const td = (t) => { const x = document.createElement("td"); x.textContent = t; return x; }; tr.appendChild(td(when.toLocaleString())); tr.appendChild(td(r.message)); tr.appendChild(td(r.repeat ? "Cada 10 min" : "No")); const tdAct = document.createElement("td"); tdAct.innerHTML = r.active ? '<span style="color:#065f46;font-weight:600">Activo</span>' : '<span style="color:#7c2d12;font-weight:600">Inactivo</span>'; tr.appendChild(tdAct); const tdActions = document.createElement("td"); const tgl = document.createElement("button"); tgl.textContent = r.active ? "Desactivar" : "Activar"; tgl.onclick = async () => { await toggleReminderActive(r.id, !r.active); }; const del = document.createElement("button"); del.textContent = "Borrar"; del.style.marginLeft = "6px"; del.onclick = async () => { const e = reminderTimers.get(r.id); if (e) { if (e.timeoutId) clearTimeout(e.timeoutId); if (e.intervalId) clearInterval(e.intervalId); } reminderTimers.delete(r.id); await deleteReminder(r.id); await refreshRemindersTable(); }; tdActions.appendChild(tgl); tdActions.appendChild(del); tr.appendChild(tdActions); tbody.appendChild(tr); } }
+    function sendSystemNotification(message) { try { if ('Notification' in window && Notification.permission === 'granted') { const n = new Notification('Recordatorio', { body: message }); n.onclick = () => { window.focus(); $('reminderPopup').style.display = 'none'; }; } } catch { } }
+    function scheduleReminderInMemory(rem) { const ex = reminderTimers.get(rem.id); if (ex) { if (ex.timeoutId) clearTimeout(ex.timeoutId); if (ex.intervalId) clearInterval(ex.intervalId); } reminderTimers.delete(rem.id); if (!rem.active) return; const entry = { timeoutId: null, intervalId: null }; const trigger = () => { currentPopupReminderId = rem.id; sendSystemNotification(rem.message); showReminderPopup(rem.message, rem.repeat); if (rem.repeat && rem.active) { entry.intervalId = setInterval(() => { currentPopupReminderId = rem.id; sendSystemNotification(rem.message); showReminderPopup(rem.message, true); }, 10 * 60 * 1000); reminderTimers.set(rem.id, entry); } }; const diff = rem.whenTs - Date.now(); if (diff <= 0) trigger(); else { entry.timeoutId = setTimeout(trigger, diff); reminderTimers.set(rem.id, entry); } }
+    async function loadAndScheduleReminders() { const list = await getMyReminders(); for (const r of list) scheduleReminderInMemory(r); }
+    async function toggleReminderActive(id, makeActive) { const e = reminderTimers.get(id); if (e) { if (e.timeoutId) clearTimeout(e.timeoutId); if (e.intervalId) clearInterval(e.intervalId); } reminderTimers.delete(id); const list = await getMyReminders(); const rem = list.find(x => x.id === id); if (!rem) return; rem.active = makeActive; await updateReminder(rem); if (makeActive) scheduleReminderInMemory(rem); await refreshRemindersTable(); }
+    async function scheduleReminder() { const date = $('remDate').value, time = $('remTime').value, msg = $('remMsg').value.trim(), repeat = $('remRepeat').checked; if (!date || !time || !msg) { alert('Completa fecha, hora y mensaje.'); return; } const target = new Date(`${date}T${time}`); if (isNaN(target.getTime())) return alert('Fecha u hora no válidas.'); if (target.getTime() <= Date.now()) return alert('La fecha y hora deben ser futuras.'); const id = await addReminder({ message: msg, whenTs: target.getTime(), repeat }); const list = await getMyReminders(); const rem = list.find(r => r.id === id); if (rem) scheduleReminderInMemory(rem); $('reminderStatus').textContent = `Guardado para ${target.toLocaleString()}${repeat ? ' (cada 10 min)' : ''}.`; setTimeout(() => { showOverlay('reminderFormPopup', false); $('reminderStatus').textContent = ''; $('remDate').value = ''; $('remTime').value = ''; $('remMsg').value = ''; $('remRepeat').checked = false; toast('Recordatorio programado'); }, 700); await refreshRemindersTable(); }
+    function showReminderPopup(message, repeating) { $('reminderText').textContent = message; $('reminderPopup').style.display = 'flex'; $('btnStopRepeat').style.display = repeating ? 'inline-block' : 'none'; }
+    async function stopRepeatForCurrent() { if (currentPopupReminderId == null) { $('reminderPopup').style.display = 'none'; return; } const list = await getMyReminders(); const rem = list.find(x => x.id === currentPopupReminderId); if (rem) { rem.active = false; await updateReminder(rem); const e = reminderTimers.get(rem.id); if (e) { if (e.timeoutId) clearTimeout(e.timeoutId); if (e.intervalId) clearInterval(e.intervalId); } reminderTimers.delete(rem.id); await refreshRemindersTable(); } $('reminderPopup').style.display = 'none'; currentPopupReminderId = null; }
+
+    async function requestNotificationsViaCheckbox(e) {
+      if (!e.target.checked) return;
+      if (!('Notification' in window)) {
+        alert('Este navegador no soporta notificaciones.');
+        e.target.checked = false;
+        return;
+      }
+      if (Notification.permission === 'granted') {
+        toast('Notificaciones activadas');
+        return;
+      }
+      try {
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted') toast('Notificaciones permitidas');
+        else {
+          alert('Notificaciones no permitidas.');
+          e.target.checked = false;
+        }
+      } catch {
+        e.target.checked = false;
+        alert('No se pudo solicitar permiso.');
+      }
+    } // ← ESTA llave faltaba
+
+    /* =========================
+       Export/Import
+       ========================= */
+    async function exportDB() { if (!currentUser) { alert("Inicia sesión primero."); return; } const [contactsRes, remindersRes] = await Promise.all([sb.from('contacts').select('*').eq('user_id', currentUser.id), sb.from('reminders').select('*').eq('user_id', currentUser.id)]); const contacts = contactsRes.data || []; const reminders = remindersRes.data || []; const data = { meta: { app: "GuiaTelefonica", version: 2, exportedAt: new Date().toISOString(), user: currentUser.email }, contacts, reminders }; const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = `guia_telefonica_${currentUser.email}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url); }
+    async function importDBFromText(jsonText) { try { if (!currentUser) { alert("Inicia sesión primero."); return; } let data; try { data = JSON.parse(jsonText); } catch { alert("JSON inválido."); return; } let contactsRaw = Array.isArray(data.contacts) ? data.contacts : []; let remindersRaw = Array.isArray(data.reminders) ? data.reminders : []; const contactsToInsert = []; const seen = new Set(); for (const c of contactsRaw) { if (c.is_global === true || c.owner === "admin") continue; const name = (c.name ?? "").trim(); const phone = (c.phone ?? "").trim(); const email = (c.email ?? "").trim(); const category = (c.category ?? "").trim(); const codigo = (c.codigo ?? "").trim(); if (!name) continue; const key = [name, phone, email, category, codigo].join("|").toLowerCase(); if (seen.has(key)) continue; seen.add(key); contactsToInsert.push({ user_id: currentUser.id, name, phone, email, category, codigo }); } const remindersToInsert = []; for (const r of remindersRaw) { const message = (r.message ?? "").trim(); if (!message) continue; let whenIso; if (r.when_ts) { const t = new Date(r.when_ts); if (isNaN(t.getTime())) continue; whenIso = t.toISOString(); } else if (r.whenTs) { const t = new Date(typeof r.whenTs === "number" ? r.whenTs : Date.parse(r.whenTs)); if (isNaN(t.getTime())) continue; whenIso = t.toISOString(); } else continue; remindersToInsert.push({ user_id: currentUser.id, message, when_ts: whenIso, repeat: !!r.repeat, active: typeof r.active === "boolean" ? r.active : true }); } async function batchInsert(table, rows, size = 500) { for (let i = 0; i < rows.length; i += size) { const slice = rows.slice(i, i + size); const { error } = await sb.from(table).insert(slice); if (error) throw new Error(`${table}: ${error.message}`); } } if (contactsToInsert.length) await batchInsert("contacts", contactsToInsert); if (remindersToInsert.length) await batchInsert("reminders", remindersToInsert); await refreshList(); await refreshRemindersTable(); clearAllReminderTimers(); await loadAndScheduleReminders(); toast(`Importación completada: ${contactsToInsert.length} contactos, ${remindersToInsert.length} recordatorios.`); } catch (err) { console.error(err); alert("Error importando: " + (err?.message || err)); } }
+
+    function clearAllReminderTimers() { for (const e of reminderTimers.values()) { try { if (e.timeoutId) clearTimeout(e.timeoutId); if (e.intervalId) clearInterval(e.intervalId); } catch { } } reminderTimers.clear(); }
+
+    /* =========================
+       DOMContentLoaded
+       ========================= */
+    window.addEventListener('DOMContentLoaded', () => {
+      // Formularios
+      $('loginForm')?.addEventListener('submit', (e) => { e.preventDefault(); login(); });
+      $('registerForm')?.addEventListener('submit', (e) => { e.preventDefault(); register(); });
+
+      // Links/login
+      $('linkGoRegister')?.addEventListener('click', (e) => { e.preventDefault(); showRegister(); });
+      $('btnBackToLogin')?.addEventListener('click', showLogin);
+      $('linkForgot')?.addEventListener('click', (e) => { e.preventDefault(); sendResetLink(); });
+
+      // Sesión
+      $('btnLogout')?.addEventListener('click', logout);
+
+      // Recordatorios & varios
+      $('btnOpenRemForm')?.addEventListener('click', async () => { showOverlay('reminderFormPopup', true); await refreshRemindersTable(); });
+      $('btnCancelRemForm')?.addEventListener('click', () => showOverlay('reminderFormPopup', false));
+      $('tabFormBtn')?.addEventListener('click', () => { });
+      $('tabListBtn')?.addEventListener('click', async () => { await refreshRemindersTable(); });
+      $('notifToggle')?.addEventListener('change', requestNotificationsViaCheckbox);
+      $('btnStartWelcome')?.addEventListener('click', () => showOverlay('welcomePopup', false));
+      $('btnSave')?.addEventListener('click', saveContact);
+      $('btnClear')?.addEventListener('click', resetForm);
+
+      // Filtros
+      const debounce = (fn, wait = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), wait); }; };
+      $('filterName')?.addEventListener('input', debounce(refreshList, 200));
+      $('filterEmail')?.addEventListener('input', debounce(refreshList, 200));
+      $('filterPhone')?.addEventListener('input', debounce(refreshList, 200));
+      $('filterCategory')?.addEventListener('change', refreshList);
+
+      $('btnScheduleRem')?.addEventListener('click', scheduleReminder);
+      $('btnCloseReminder')?.addEventListener('click', () => $('reminderPopup').style.display = 'none');
+      $('btnStopRepeat')?.addEventListener('click', stopRepeatForCurrent);
+      $('accordionFilterBtn')?.addEventListener('click', () => {
+        const btn = $('accordionFilterBtn'), c = $('accordionFilterContent'), ch = $('chevronFilter');
+        const exp = btn.getAttribute('aria-expanded') === 'true';
+        c.style.maxHeight = exp ? '0px' : (c.scrollHeight + 'px');
+        btn.setAttribute('aria-expanded', String(!exp));
+        ch.classList.toggle('up', !exp);
+        ch.textContent = !exp ? '▲' : '▼';
+      });
+
+      $('btnExport')?.addEventListener('click', exportDB);
+      $('btnImport')?.addEventListener('click', async () => {
+        if (window.showOpenFilePicker) {
+          try {
+            const [handle] = await showOpenFilePicker({ multiple: false, types: [{ description: "JSON", accept: { "application/json": [".json"] } }] });
+            const file = await handle.getFile(); const text = await file.text(); await importDBFromText(text); return;
+          } catch (err) { if (err?.name === "AbortError") return; }
+        }
+        const inp = $('importFile'); if (inp) { inp.value = ""; inp.click(); }
+      });
+      $('importFile')?.addEventListener('change', async (e) => { const file = e.target.files?.[0]; if (!file) return; const text = await file.text(); await importDBFromText(text); });
+
+      // Intento de sesión previa en esta pestaña (sessionStorage)
+      (async () => {
+        try {
+          const { data: { session }, error } = await sb.auth.getSession();
+          if (error) throw error;
+          if (session?.user) {
+            currentUser = session.user;
+            await afterAuth();
+            return;
+          }
+        } catch { }
+        currentUser = null;
+        showLogin();
+        $('app').style.display = 'none';
+      })();
+    });
+  </script>
 
 
 
