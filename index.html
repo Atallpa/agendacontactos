@@ -560,6 +560,12 @@
     .icon-btn:hover {
       color: #0056b3;
     }
+    card.dataset.readonly = String(!!c.readonly);
+
+    /* oculta acciones cuando la tarjeta es de solo lectura */
+  .contact-card[data-readonly="true"] .contact-actions { display: none; }
+
+
   </style>
 </head>
 
@@ -1312,3 +1318,4 @@
 </body>
 
 </html>
+
