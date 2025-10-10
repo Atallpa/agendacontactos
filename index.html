@@ -567,6 +567,10 @@
 
     .contact-card[data-readonly="true"] .icon-btn { display: none !important; }
 
+    .focus-flash {
+  box-shadow: 0 0 0 3px rgba(0,123,255,.25);
+  transition: box-shadow .2s ease;
+}
 
 
   </style>
@@ -1075,19 +1079,53 @@
       return (data || []).map(c => ({ ...c, readonly: c.is_global === true }));
     }
 
-    async function editContact(id) {
-      const user = requireUser();
-      const { data, error } = await sb.from('contacts').select('*').eq('id', Number(id)).eq('user_id', user.id).single();
-      if (error) { alert("No se pudo cargar: " + error.message); return; }
-      const c = data;
-      currentEditId = c.id;
-      $("contactName").value = c.name || "";
-      $("contactPhone").value = c.phone || "";
-      $("contactEmail").value = c.email || "";
-      $("contactCodigo").value = c.codigo || "";
-      $("contactCategory").value = (c.category || "");
-      $("formLegend").textContent = "Modificar contacto"; $("editHint").style.display = "inline"; $("btnSave").textContent = "Guardar cambios";
+  async function editContact(id) {
+  const user = requireUser();
+  const { data, error } = await sb.from('contacts')
+    .select('*')
+    .eq('id', Number(id))
+    .eq('user_id', user.id)
+    .single();
+
+  if (error) { alert("No se pudo cargar: " + error.message); return; }
+
+  const c = data;
+  currentEditId = c.id;
+
+  $("contactName").value   = c.name || "";
+  $("contactPhone").value  = c.phone || "";
+  $("contactEmail").value  = c.email || "";
+  $("contactCodigo").value = c.codigo || "";
+  $("contactCategory").value = (c.category || "");
+
+  $("formLegend").textContent = "Modificar contacto";
+  $("editHint").style.display = "inline";
+  $("btnSave").textContent = "Guardar cambios";
+
+  // 👇 Scroll arriba + foco en el nombre
+  try {
+    // Desplaza suavemente al inicio
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    const nameInput = $("contactName");
+    if (nameInput) {
+      // Foco inmediato (por si el navegador bloquea durante la animación)
+      nameInput.focus();
+      nameInput.select?.();
+
+      // Refuerzo del foco tras la animación de scroll
+      setTimeout(() => {
+        nameInput.focus();
+        nameInput.select?.();
+      }, 350);
+
+      // (Opcional) pequeño “flash” de realce
+      nameInput.classList.add("focus-flash");
+      setTimeout(() => nameInput.classList.remove("focus-flash"), 600);
     }
+  } catch {}
+}
+
 
     async function deleteContact(id) {
       const user = requireUser();
@@ -1323,6 +1361,7 @@
 </body>
 
 </html>
+
 
 
 
