@@ -499,6 +499,67 @@
       max-width: 90px;
       height: auto;
     }
+
+    .contact-card {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      overflow: hidden;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .contact-main {
+      padding: 12px;
+    }
+
+    .contact-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .contact-line {
+      font-size: 0.9rem;
+      margin-bottom: 4px;
+    }
+
+    .contact-line a {
+      color: #007bff;
+      text-decoration: none;
+    }
+
+    .contact-line a:hover {
+      text-decoration: underline;
+    }
+
+    .contact-meta {
+      margin-top: 8px;
+      font-size: 0.85rem;
+      color: #555;
+    }
+
+    .contact-actions {
+      display: flex;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #f9f9f9;
+      border-top: 1px solid #ddd;
+    }
+
+    .icon-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      font-size: 1.2rem;
+      color: #007bff;
+      transition: color 0.2s;
+    }
+
+    .icon-btn:hover {
+      color: #0056b3;
+    }
   </style>
 </head>
 
@@ -769,19 +830,7 @@
 
     <fieldset>
       <legend>Contactos</legend>
-      <table>
-        <thead>
-          <tr>
-            <th>Nombre</th>
-            <th>Teléfono</th>
-            <th>Email</th>
-            <th>Categoría</th>
-            <th>Código Mediador</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody id="contactsTbody"></tbody>
-      </table>
+      <div id="contactsCards" aria-live="polite"></div>
     </fieldset>
   </div>
   <script type="module">
@@ -1042,22 +1091,94 @@
 
     async function refreshList() {
       await ensureCategoryOptions();
-      const tbody = $("contactsTbody"); tbody.innerHTML = "";
+      const container = document.getElementById("contactsCards");
+      container.innerHTML = "";
       const rows = await getContactsForList();
       if (rows.length === 0) {
-        const tr = document.createElement("tr"); const td = document.createElement("td");
-        td.colSpan = 6; td.className = "muted"; td.textContent = "No hay contactos que coincidan.";
-        tr.appendChild(td); tbody.appendChild(tr); return;
+        const p = document.createElement("p");
+        p.className = "muted";
+        p.textContent = "No hay contactos que coincidan.";
+        container.appendChild(p);
+        return;
       }
       for (const c of rows) {
-        const tr = document.createElement("tr");
-        const td = (t) => { const x = document.createElement("td"); x.textContent = t || ""; return x; };
-        tr.appendChild(td(c.name)); tr.appendChild(td(c.phone)); tr.appendChild(td(c.email)); tr.appendChild(td(c.category)); tr.appendChild(td(c.codigo));
-        const tdActions = document.createElement("td");
-        const e = document.createElement("button"); e.id = `btn-edit-${c.id}`; e.textContent = "✏️"; e.onclick = () => editContact(c.id); e.disabled = c.readonly;
-        const d = document.createElement("button"); d.id = `btn-delete-${c.id}`; d.textContent = "🗑️"; d.onclick = () => deleteContact(c.id); d.disabled = c.readonly;
-        tdActions.appendChild(e); tdActions.appendChild(d); tr.appendChild(tdActions);
-        tbody.appendChild(tr);
+        const card = document.createElement("article");
+        card.className = "contact-card";
+
+        const main = document.createElement("div");
+        main.className = "contact-main";
+
+        const title = document.createElement("div");
+        title.className = "contact-title";
+        title.textContent = c.name || "—";
+        title.title = c.name || "";
+        main.appendChild(title);
+
+        const phoneLine = document.createElement("div");
+        phoneLine.className = "contact-line";
+        if (c.phone) {
+          const a = document.createElement("a");
+          a.href = "tel:" + (c.phone || "").replace(/[^0-9+]/g, "");
+          a.textContent = c.phone;
+          a.title = c.phone;
+          phoneLine.appendChild(a);
+        } else {
+          phoneLine.textContent = "Teléfono";
+          phoneLine.classList.add("muted");
+        }
+        main.appendChild(phoneLine);
+
+        const emailLine = document.createElement("div");
+        emailLine.className = "contact-line";
+        if (c.email) {
+          const a = document.createElement("a");
+          a.href = `mailto:${c.email}`;
+          a.textContent = c.email;
+          a.title = c.email;
+          emailLine.appendChild(a);
+        } else {
+          emailLine.textContent = "Email";
+          emailLine.classList.add("muted");
+        }
+        main.appendChild(emailLine);
+
+        const meta = document.createElement("div");
+        meta.className = "contact-meta";
+        const cat = document.createElement("small");
+        cat.textContent = c.category || "";
+        meta.appendChild(cat);
+        const codigo = (c.codigo || "").trim();
+        if (codigo) {
+          const cod = document.createElement("small");
+          cod.textContent = `Código de mediador: ${codigo}`;
+          meta.appendChild(cod);
+        }
+        main.appendChild(meta);
+
+        const actions = document.createElement("div");
+        actions.className = "contact-actions";
+        const btnEdit = document.createElement("button");
+        btnEdit.id = `btn-edit-${c.id}`;
+        btnEdit.className = "icon-btn";
+        btnEdit.innerHTML = '<span aria-hidden="true">✏️</span>';
+        btnEdit.title = "Modificar";
+        btnEdit.disabled = c.readonly;
+        btnEdit.onclick = () => editContact(c.id);
+
+        const btnDelete = document.createElement("button");
+        btnDelete.id = `btn-delete-${c.id}`;
+        btnDelete.className = "icon-btn";
+        btnDelete.innerHTML = '<span aria-hidden="true">🗑️</span>';
+        btnDelete.title = "Borrar";
+        btnDelete.disabled = c.readonly;
+        btnDelete.onclick = () => deleteContact(c.id);
+
+        actions.appendChild(btnEdit);
+        actions.appendChild(btnDelete);
+
+        card.appendChild(main);
+        card.appendChild(actions);
+        container.appendChild(card);
       }
     }
 
@@ -1191,6 +1312,3 @@
 </body>
 
 </html>
-
-
-
