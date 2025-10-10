@@ -563,7 +563,10 @@
     card.dataset.readonly = String(!!c.readonly);
 
     /* oculta acciones cuando la tarjeta es de solo lectura */
-    .contact-card[data-readonly="true"] .contact-actions { display: none !important; ; }
+    .contact-card[data-readonly="true"] .contact-actions { display: none !important;  }
+
+    .contact-card[data-readonly="true"] .icon-btn { display: none !important; }
+
 
 
   </style>
@@ -1320,6 +1323,7 @@
 </body>
 
 </html>
+
 
 
 
