@@ -1110,6 +1110,8 @@
       for (const c of rows) {
         const card = document.createElement("article");
         card.className = "contact-card";
+        card.dataset.readonly = String(!!c.is_global);
+        
 
         const main = document.createElement("div");
         main.className = "contact-main";
@@ -1318,6 +1320,7 @@
 </body>
 
 </html>
+
 
 
 
