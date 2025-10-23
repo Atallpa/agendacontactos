@@ -560,6 +560,19 @@
     .icon-btn:hover {
       color: #0056b3;
     }
+    card.dataset.readonly = String(!!c.readonly);
+
+    /* oculta acciones cuando la tarjeta es de solo lectura */
+    .contact-card[data-readonly="true"] .contact-actions { display: none !important;  }
+
+    .contact-card[data-readonly="true"] .icon-btn { display: none !important; }
+
+    .focus-flash {
+  box-shadow: 0 0 0 3px rgba(0,123,255,.25);
+  transition: box-shadow .2s ease;
+}
+
+
   </style>
 </head>
 
@@ -790,8 +803,8 @@
         </div>
       </div>
       <div class="actions" style="margin-top:8px;">
-        <button id="btnSave">Guardar</button>
-        <button id="btnClear" type="button">Limpiar</button>
+        <button id="btnSave" title="Guardar contacto">Guardar</button>
+        <button id="btnClear" title="Limpiar campos" type="button">Limpiar</button>
         <span class="muted" id="editHint" style="display:none;">Editando contacto existente…</span>
       </div>
     </fieldset>
@@ -867,7 +880,6 @@
     let currentUser = null;
     let currentEditId = null;
     const DEFAULT_CATEGORIES = ["Siniestros", "Grúas", "Asistencia", "Salud", "Administraciones", "Contactos", "Otros"];
-    const ADMIN_EMAILS = ["ivan@segurospolifani.com"];
     const reminderTimers = new Map(); let currentPopupReminderId = null;
 
     const $ = (id) => document.getElementById(id);
@@ -1040,11 +1052,8 @@
         phone: $("contactPhone").value.trim(),
         email: $("contactEmail").value.trim(),
         category: $("contactCategory").value.trim(),
-        codigo: $("contactCodigo").value.trim(),
-        // 👇 si el usuario es admin, el contacto será global
-        is_global: ADMIN_EMAILS.includes((user.email || "").toLowerCase())
+        codigo: $("contactCodigo").value.trim()
       };
-
       if (currentEditId == null) {
         const { error } = await sb.from('contacts').insert(obj);
         if (error) { alert("No se pudo guardar: " + error.message); return; }
@@ -1070,45 +1079,62 @@
       return (data || []).map(c => ({ ...c, readonly: c.is_global === true }));
     }
 
-    async function editContact(id) {
-      const user = requireUser();
-      const { data, error } = await sb.from('contacts').select('*').eq('id', Number(id)).eq('user_id', user.id).single();
-      if (error) { alert("No se pudo cargar: " + error.message); return; }
-      const c = data;
-      currentEditId = c.id;
-      $("contactName").value = c.name || "";
-      $("contactPhone").value = c.phone || "";
-      $("contactEmail").value = c.email || "";
-      $("contactCodigo").value = c.codigo || "";
-      $("contactCategory").value = (c.category || "");
-      $("formLegend").textContent = "Modificar contacto"; $("editHint").style.display = "inline"; $("btnSave").textContent = "Guardar cambios";
-    }
-
-    async function deleteContact(id) {
+  async function editContact(id) {
   const user = requireUser();
-  const { data, error: getErr } = await sb.from('contacts')
-    .select('is_global')
+  const { data, error } = await sb.from('contacts')
+    .select('*')
     .eq('id', Number(id))
+    .eq('user_id', user.id)
     .single();
 
-  if (getErr) { alert("Error: " + getErr.message); return; }
+  if (error) { alert("No se pudo cargar: " + error.message); return; }
 
-  if (data?.is_global && !ADMIN_EMAILS.includes(user.email.toLowerCase())) {
-    alert("No puedes borrar un contacto global.");
-    return;
-  }
+  const c = data;
+  currentEditId = c.id;
 
-  if (!confirm("¿Borrar el contacto seleccionado?")) return;
-  const { error } = await sb.from('contacts')
-    .delete()
-    .eq('id', Number(id))
-    .eq('user_id', user.id);
+  $("contactName").value   = c.name || "";
+  $("contactPhone").value  = c.phone || "";
+  $("contactEmail").value  = c.email || "";
+  $("contactCodigo").value = c.codigo || "";
+  $("contactCategory").value = (c.category || "");
 
-  if (error) { alert("No se pudo borrar: " + error.message); return; }
-  if (currentEditId === Number(id)) resetForm();
-  refreshList();
+  $("formLegend").textContent = "Modificar contacto";
+  $("editHint").style.display = "inline";
+  $("btnSave").textContent = "Guardar cambios";
+
+  // 👇 Scroll arriba + foco en el nombre
+  try {
+    // Desplaza suavemente al inicio
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    const nameInput = $("contactName");
+    if (nameInput) {
+      // Foco inmediato (por si el navegador bloquea durante la animación)
+      nameInput.focus();
+      nameInput.select?.();
+
+      // Refuerzo del foco tras la animación de scroll
+      setTimeout(() => {
+        nameInput.focus();
+        nameInput.select?.();
+      }, 350);
+
+      // (Opcional) pequeño “flash” de realce
+      nameInput.classList.add("focus-flash");
+      setTimeout(() => nameInput.classList.remove("focus-flash"), 600);
+    }
+  } catch {}
 }
 
+
+    async function deleteContact(id) {
+      const user = requireUser();
+      if (!confirm("¿Borrar el contacto seleccionado?")) return;
+      const { error } = await sb.from('contacts').delete().eq('id', Number(id)).eq('user_id', user.id);
+      if (error) { alert("No se pudo borrar: " + error.message); return; }
+      if (currentEditId === Number(id)) resetForm();
+      refreshList();
+    }
 
     async function refreshList() {
       await ensureCategoryOptions();
@@ -1125,6 +1151,8 @@
       for (const c of rows) {
         const card = document.createElement("article");
         card.className = "contact-card";
+        card.dataset.readonly = String(!!c.is_global);
+        
 
         const main = document.createElement("div");
         main.className = "contact-main";
@@ -1333,3 +1361,9 @@
 </body>
 
 </html>
+
+
+
+
+
+
