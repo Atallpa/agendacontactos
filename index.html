@@ -934,8 +934,8 @@
             break;
 
         }
-      authSubscription = subscription;
-    });
+        authSubscription = subscription;
+      });
     }
     bindAuthListener();
 
@@ -1031,34 +1031,34 @@
       return ok;
     }
 
-   async function saveContact() {
-  if (!validateContactForm()) return;
-  const user = requireUser();
-  const obj = {
-    user_id: user.id,
-    name: $("contactName").value.trim(),
-    phone: $("contactPhone").value.trim(),
-    email: $("contactEmail").value.trim(),
-    category: $("contactCategory").value.trim(),
-    codigo: $("contactCodigo").value.trim(),
-    is_global: ADMIN_EMAILS.includes((user.email || "").toLowerCase())
-  };
+    async function saveContact() {
+      if (!validateContactForm()) return;
+      const user = requireUser();
+      const obj = {
+        user_id: user.id,
+        name: $("contactName").value.trim(),
+        phone: $("contactPhone").value.trim(),
+        email: $("contactEmail").value.trim(),
+        category: $("contactCategory").value.trim(),
+        codigo: $("contactCodigo").value.trim(),
+        is_global: ADMIN_EMAILS.includes((user.email || "").toLowerCase())
+      };
 
-  if (currentEditId == null) {
-    const { error } = await sb.from('contacts').insert(obj).select();
-    if (error) { alert("No se pudo guardar: " + error.message); return; }
-  } else {
-    if (isNaN(currentEditId)) { alert("ID inválido."); return; }
-    const { error } = await sb.from('contacts')
-      .update(obj)
-      .eq('id', Number(currentEditId))
-      .eq('user_id', user.id)
-      .select(); //
-    if (error) { alert("No se pudo actualizar: " + error.message); return; }
-  }
-  resetForm();
-  refreshList();
-}
+      if (currentEditId == null) {
+        const { error } = await sb.from('contacts').insert(obj).select();
+        if (error) { alert("No se pudo guardar: " + error.message); return; }
+      } else {
+        if (isNaN(currentEditId)) { alert("ID inválido."); return; }
+        const { error } = await sb.from('contacts')
+          .update(obj)
+          .eq('id', Number(currentEditId))
+          .eq('user_id', user.id)
+          .select(); //
+        if (error) { alert("No se pudo actualizar: " + error.message); return; }
+      }
+      resetForm();
+      refreshList();
+    }
 
 
     async function getContactsForList() {
@@ -1100,29 +1100,41 @@
 
 
     async function deleteContact(id) {
-  const user = requireUser();
-  const { data, error: getErr } = await sb.from('contacts')
-    .select('is_global')
-    .eq('id', Number(id))
-    .single();
+      const user = requireUser();
 
-  if (getErr) { alert("Error: " + getErr.message); return; }
+      // Primero, comprobamos si es global
+      const { data, error: getErr } = await sb.from('contacts')
+        .select('is_global')
+        .eq('id', id) // 👈 quitar Number()
+        .maybeSingle(); // 👈 mejor que .single()
 
-  if (data?.is_global && !ADMIN_EMAILS.includes(user.email.toLowerCase())) {
-    alert("No puedes borrar un contacto global.");
-    return;
-  }
+      if (getErr) {
+        alert("Error: " + getErr.message);
+        return;
+      }
 
-  if (!confirm("¿Borrar el contacto seleccionado?")) return;
-  const { error } = await sb.from('contacts')
-    .delete()
-    .eq('id', Number(id))
-    .eq('user_id', user.id);
+      if (data?.is_global && !ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+        alert("No puedes borrar un contacto global.");
+        return;
+      }
 
-  if (error) { alert("No se pudo borrar: " + error.message); return; }
-  if (currentEditId === Number(id)) resetForm();
-  refreshList();
-}
+      if (!confirm("¿Borrar el contacto seleccionado?")) return;
+
+      const { error } = await sb.from('contacts')
+        .delete()
+        .eq('id', id) // 👈 quitar Number()
+        .eq('user_id', user.id);
+
+      if (error) {
+        alert("No se pudo borrar: " + error.message);
+        return;
+      }
+
+      if (currentEditId === id) resetForm();
+
+      await refreshList(); // 👈 asegúrate de que sea await
+    }
+
 
 
     async function refreshList() {
