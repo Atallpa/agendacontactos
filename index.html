@@ -560,6 +560,19 @@
     .icon-btn:hover {
       color: #0056b3;
     }
+    card.dataset.readonly = String(!!c.readonly);
+
+    /* oculta acciones cuando la tarjeta es de solo lectura */
+    .contact-card[data-readonly="true"] .contact-actions { display: none !important;  }
+
+    .contact-card[data-readonly="true"] .icon-btn { display: none !important; }
+
+    .focus-flash {
+  box-shadow: 0 0 0 3px rgba(0,123,255,.25);
+  transition: box-shadow .2s ease;
+}
+
+
   </style>
 </head>
 
@@ -790,8 +803,8 @@
         </div>
       </div>
       <div class="actions" style="margin-top:8px;">
-        <button id="btnSave">Guardar</button>
-        <button id="btnClear" type="button">Limpiar</button>
+        <button id="btnSave" title="Guardar contacto">Guardar</button>
+        <button id="btnClear" title="Limpiar campos" type="button">Limpiar</button>
         <span class="muted" id="editHint" style="display:none;">Editando contacto existente…</span>
       </div>
     </fieldset>
@@ -850,7 +863,7 @@
         auth: {
           persistSession: true,
           autoRefreshToken: true,
-          storage: localStorage,
+          storage: sessionStorage,
           storageKey: SS_KEY
         }
       });
@@ -867,7 +880,6 @@
     let currentUser = null;
     let currentEditId = null;
     const DEFAULT_CATEGORIES = ["Siniestros", "Grúas", "Asistencia", "Salud", "Administraciones", "Contactos", "Otros"];
-    const ADMIN_EMAILS = ["ivan@segurospolifani.com"];
     const reminderTimers = new Map(); let currentPopupReminderId = null;
 
     const $ = (id) => document.getElementById(id);
@@ -934,8 +946,8 @@
             break;
 
         }
-        authSubscription = subscription;
-      });
+      authSubscription = subscription;
+    });
     }
     bindAuthListener();
 
@@ -1033,7 +1045,6 @@
 
     async function saveContact() {
       if (!validateContactForm()) return;
-
       const user = requireUser();
       const obj = {
         user_id: user.id,
@@ -1041,82 +1052,89 @@
         phone: $("contactPhone").value.trim(),
         email: $("contactEmail").value.trim(),
         category: $("contactCategory").value.trim(),
-        codigo: $("contactCodigo").value.trim(),
-        //is_global: ADMIN_EMAILS.includes((user.email || "").toLowerCase())
-        is_global: ADMIN_EMAILS.includes((user.email || "").toLowerCase()) ? true : false
-
+        codigo: $("contactCodigo").value.trim()
       };
-
-      try {
-        if (!currentEditId) {
-          // 👇 solo insertamos, sin .select()
-          const { error } = await sb.from('contacts').insert(obj);
-          if (error) throw error;
-          toast("✅ Contacto agregado");
-        } else {
-          // 👇 actualización segura (sin Number)
-          const { error } = await sb.from('contacts')
-            .update(obj)
-            .eq('id', currentEditId)
-            .eq('user_id', user.id);
-          if (error) throw error;
-          toast("✏️ Contacto actualizado");
-        }
-
-        resetForm();
-        await refreshList();
-      } catch (err) {
-        console.error(err);
-        alert("No se pudo guardar: " + (err?.message || err));
+      if (currentEditId == null) {
+        const { error } = await sb.from('contacts').insert(obj);
+        if (error) { alert("No se pudo guardar: " + error.message); return; }
+      } else {
+        const { error } = await sb.from('contacts').update(obj).eq('id', Number(currentEditId)).eq('user_id', user.id);
+        if (error) { alert("No se pudo actualizar: " + error.message); return; }
       }
+      resetForm(); refreshList();
     }
 
     async function getContactsForList() {
-      const user = requireUser();
-
-      // Solo tus contactos y los globales
-      let q = sb.from('contacts')
-        .select('*')
-        .or(`user_id.eq.${user.id},is_global.is.true`);
-
+      let q = sb.from('contacts').select('*');
+      const fName = normalize($("filterName").value);
+      const fEmail = normalize($("filterEmail").value);
+      const fPhone = normalize($("filterPhone").value);
+      const fCatVal = $("filterCategory").value;
+      if (fName) q = q.ilike('name', `%${fName}%`);
+      if (fEmail) q = q.ilike('email', `%${fEmail}%`);
+      if (fPhone) q = q.ilike('phone', `%${fPhone}%`);
+      if (fCatVal && fCatVal !== 'all') q = q.eq('category', fCatVal);
       const { data, error } = await q.order('name', { ascending: true });
-      if (error) {
-        alert("Error listando contactos: " + error.message);
-        return [];
-      }
-
-      // Marcar como de solo lectura los globales (true literal)
-      return (data || []).map(c => ({
-        ...c,
-        readonly: c.is_global === true
-      }));
+      if (error) { alert("Error listando contactos: " + error.message); return []; }
+      return (data || []).map(c => ({ ...c, readonly: c.is_global === true }));
     }
 
+  async function editContact(id) {
+  const user = requireUser();
+  const { data, error } = await sb.from('contacts')
+    .select('*')
+    .eq('id', Number(id))
+    .eq('user_id', user.id)
+    .single();
+
+  if (error) { alert("No se pudo cargar: " + error.message); return; }
+
+  const c = data;
+  currentEditId = c.id;
+
+  $("contactName").value   = c.name || "";
+  $("contactPhone").value  = c.phone || "";
+  $("contactEmail").value  = c.email || "";
+  $("contactCodigo").value = c.codigo || "";
+  $("contactCategory").value = (c.category || "");
+
+  $("formLegend").textContent = "Modificar contacto";
+  $("editHint").style.display = "inline";
+  $("btnSave").textContent = "Guardar cambios";
+
+  // 👇 Scroll arriba + foco en el nombre
+  try {
+    // Desplaza suavemente al inicio
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    const nameInput = $("contactName");
+    if (nameInput) {
+      // Foco inmediato (por si el navegador bloquea durante la animación)
+      nameInput.focus();
+      nameInput.select?.();
+
+      // Refuerzo del foco tras la animación de scroll
+      setTimeout(() => {
+        nameInput.focus();
+        nameInput.select?.();
+      }, 350);
+
+      // (Opcional) pequeño “flash” de realce
+      nameInput.classList.add("focus-flash");
+      setTimeout(() => nameInput.classList.remove("focus-flash"), 600);
+    }
+  } catch {}
+}
 
 
     async function deleteContact(id) {
       const user = requireUser();
-      const isAdmin = ADMIN_EMAILS.includes((user.email || "").toLowerCase());
-
-      if (!confirm("¿Seguro que deseas borrar este contacto?")) return;
-
-      const q = sb.from('contacts').delete().eq('id', id);
-      if (!isAdmin) q.eq('user_id', user.id);
-
-      const { error } = await q;
-      if (error) {
-        alert("No se pudo borrar: " + error.message);
-        return;
-      }
-
-      await refreshList();
-      toast("🗑️ Contacto eliminado");
+      if (!confirm("¿Borrar el contacto seleccionado?")) return;
+      const { error } = await sb.from('contacts').delete().eq('id', Number(id)).eq('user_id', user.id);
+      if (error) { alert("No se pudo borrar: " + error.message); return; }
+      if (currentEditId === Number(id)) resetForm();
+      refreshList();
     }
-
-
-
-
-
 
     async function refreshList() {
       await ensureCategoryOptions();
@@ -1133,6 +1151,8 @@
       for (const c of rows) {
         const card = document.createElement("article");
         card.className = "contact-card";
+        card.dataset.readonly = String(!!c.is_global);
+        
 
         const main = document.createElement("div");
         main.className = "contact-main";
@@ -1202,54 +1222,14 @@
         btnDelete.disabled = c.readonly;
         btnDelete.onclick = () => deleteContact(c.id);
 
-        // Mostrar botones de edición/borrado
-        const isAdmin = ADMIN_EMAILS.includes((currentUser?.email || "").toLowerCase());
-        if (isAdmin || !c.readonly) {
-          actions.appendChild(btnEdit);
-          actions.appendChild(btnDelete);
-        }
-
-
+        actions.appendChild(btnEdit);
+        actions.appendChild(btnDelete);
 
         card.appendChild(main);
         card.appendChild(actions);
         container.appendChild(card);
       }
     }
-
-    //EDITAR CONTATOS 
-
-    async function editContact(id) {
-      const user = requireUser();
-      const isAdmin = ADMIN_EMAILS.includes((user.email || "").toLowerCase());
-
-      const q = sb.from('contacts').select('*').eq('id', id);
-      if (!isAdmin) q.eq('user_id', user.id);
-      const { data, error } = await q.maybeSingle();
-
-      if (error) {
-        alert("No se pudo cargar: " + error.message);
-        return;
-      }
-      if (!data) {
-        alert("No se encontró el contacto o no tienes permiso para editarlo.");
-        return;
-      }
-
-      const c = data;
-      currentEditId = c.id;
-      $("contactName").value = c.name || "";
-      $("contactPhone").value = c.phone || "";
-      $("contactEmail").value = c.email || "";
-      $("contactCodigo").value = c.codigo || "";
-      $("contactCategory").value = c.category || "";
-      $("formLegend").textContent = "Modificar contacto";
-      $("editHint").style.display = "inline";
-      $("btnSave").textContent = "Guardar cambios";
-
-      $("contactName").scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-
 
     /* =========================
        Recordatorios
@@ -1381,4 +1361,9 @@
 </body>
 
 </html>
+
+
+
+
+
 
