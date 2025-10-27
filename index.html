@@ -1072,20 +1072,10 @@
 async function getContactsForList() {
   const user = requireUser();
 
-  //Solo tus contactos y los globales
+  // Solo tus contactos y los globales
   let q = sb.from('contacts')
     .select('*')
-    .or(`user_id.eq.${user.id},is_global.eq.true`);
-
-  const fName = normalize($("filterName").value);
-  const fEmail = normalize($("filterEmail").value);
-  const fPhone = normalize($("filterPhone").value);
-  const fCatVal = $("filterCategory").value;
-
-  if (fName) q = q.ilike('name', `%${fName}%`);
-  if (fEmail) q = q.ilike('email', `%${fEmail}%`);
-  if (fPhone) q = q.ilike('phone', `%${fPhone}%`);
-  if (fCatVal && fCatVal !== 'all') q = q.eq('category', fCatVal);
+    .or(`user_id.eq.${user.id},is_global.is.true`);
 
   const { data, error } = await q.order('name', { ascending: true });
   if (error) {
@@ -1093,12 +1083,13 @@ async function getContactsForList() {
     return [];
   }
 
-  // ⚠️ Marcamos los globales como solo lectura
+  // Marcar como de solo lectura los globales (true literal)
   return (data || []).map(c => ({
     ...c,
     readonly: c.is_global === true
   }));
 }
+
 
 
 async function deleteContact(id) {
