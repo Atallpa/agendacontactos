@@ -1031,50 +1031,45 @@
       return ok;
     }
 
-    async function saveContact() {
-      if (!validateContactForm()) return;
-      const user = requireUser();
-      const obj = {
-        user_id: user.id,
-        name: $("contactName").value.trim(),
-        phone: $("contactPhone").value.trim(),
-        email: $("contactEmail").value.trim(),
-        category: $("contactCategory").value.trim(),
-        codigo: $("contactCodigo").value.trim(),
-        is_global: ADMIN_EMAILS.includes((user.email || "").toLowerCase())
-      };
+   async function saveContact() {
+  if (!validateContactForm()) return;
 
-      if (currentEditId == null) {
-        const { error } = await sb.from('contacts').insert(obj).select();
-        if (error) { alert("No se pudo guardar: " + error.message); return; }
-      } else {
-        if (isNaN(currentEditId)) { alert("ID inválido."); return; }
-        const { error } = await sb.from('contacts')
-          .update(obj)
-          .eq('id', Number(currentEditId))
-          .eq('user_id', user.id)
-          .select(); //
-        if (error) { alert("No se pudo actualizar: " + error.message); return; }
-      }
-      if (currentEditId == null) {
-        const { error } = await sb.from('contacts').insert(obj).select();
-        if (error) { alert("No se pudo guardar: " + error.message); return; }
-        showPopupMessage("✅ Contacto agregado", "El contacto fue guardado correctamente.");
-      } else {
-        const { error } = await sb.from('contacts')
-          .update(obj)
-          .eq('id', currentEditId)
-          .eq('user_id', user.id)
-          .select();
-        if (error) { alert("No se pudo actualizar: " + error.message); return; }
-        showPopupMessage("✏️ Contacto actualizado", "Los cambios se guardaron correctamente.");
-      }
-      resetForm();
-      refreshList();
+  const user = requireUser();
+  const obj = {
+    user_id: user.id,
+    name: $("contactName").value.trim(),
+    phone: $("contactPhone").value.trim(),
+    email: $("contactEmail").value.trim(),
+    category: $("contactCategory").value.trim(),
+    codigo: $("contactCodigo").value.trim(),
+    is_global: ADMIN_EMAILS.includes((user.email || "").toLowerCase())
+  };
 
+  try {
+    if (currentEditId == null) {
+      // 🔹 Crear nuevo contacto (sin .select() para evitar error falso)
+      const { error } = await sb.from('contacts').insert(obj);
+      if (error) throw error;
 
+      showPopupMessage("✅ Contacto agregado", "El contacto fue guardado correctamente.");
+    } else {
+      // 🔹 Editar contacto existente
+      const { error } = await sb.from('contacts')
+        .update(obj)
+        .eq('id', currentEditId) // 👈 no usar Number()
+        .eq('user_id', user.id);
+      if (error) throw error;
 
+      showPopupMessage("✏️ Contacto actualizado", "Los cambios se guardaron correctamente.");
     }
+
+    resetForm();
+    await refreshList();
+  } catch (err) {
+    alert("No se pudo guardar: " + (err?.message || err));
+  }
+}
+
 
 
     async function getContactsForList() {
