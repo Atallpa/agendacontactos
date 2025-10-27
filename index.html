@@ -1132,7 +1132,10 @@
 
       if (currentEditId === id) resetForm();
 
-      await refreshList(); // 👈 asegúrate de que sea await
+      // Eliminar visualmente por si acaso
+      document.querySelector(`#btn-delete-${id}`)?.closest(".contact-card")?.remove();
+      await refreshList();
+
     }
 
 
