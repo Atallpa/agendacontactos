@@ -1069,76 +1069,59 @@
       }
     }
 
+async function getContactsForList() {
+  const user = requireUser();
 
-  async function getContactsForList() {
-    const user = requireUser();
+  //Solo tus contactos y los globales
+  let q = sb.from('contacts')
+    .select('*')
+    .or(`user_id.eq.${user.id},is_global.eq.true`);
 
-    // 👇 Filtramos solo los del usuario actual o los globales
-    let q = sb.from('contacts')
-      .select('*')
-      .or(`user_id.eq.${user.id},is_global.eq.true`);
+  const fName = normalize($("filterName").value);
+  const fEmail = normalize($("filterEmail").value);
+  const fPhone = normalize($("filterPhone").value);
+  const fCatVal = $("filterCategory").value;
 
-    const fName = normalize($("filterName").value);
-    const fEmail = normalize($("filterEmail").value);
-    const fPhone = normalize($("filterPhone").value);
-    const fCatVal = $("filterCategory").value;
+  if (fName) q = q.ilike('name', `%${fName}%`);
+  if (fEmail) q = q.ilike('email', `%${fEmail}%`);
+  if (fPhone) q = q.ilike('phone', `%${fPhone}%`);
+  if (fCatVal && fCatVal !== 'all') q = q.eq('category', fCatVal);
 
-    if (fName) q = q.ilike('name', `%${fName}%`);
-    if (fEmail) q = q.ilike('email', `%${fEmail}%`);
-    if (fPhone) q = q.ilike('phone', `%${fPhone}%`);
-    if (fCatVal && fCatVal !== 'all') q = q.eq('category', fCatVal);
-
-    const { data, error } = await q.order('name', { ascending: true });
-    if (error) {
-      alert("Error listando contactos: " + error.message);
-      return [];
-    }
-
-    // ⚠️ Filtramos los sin user_id y no globales (huérfanos)
-    return (data || []).filter(c => c.user_id || c.is_global)
-      .map(c => ({ ...c, readonly: c.is_global === true }));
+  const { data, error } = await q.order('name', { ascending: true });
+  if (error) {
+    alert("Error listando contactos: " + error.message);
+    return [];
   }
 
+  // ⚠️ Marcamos los globales como solo lectura
+  return (data || []).map(c => ({
+    ...c,
+    readonly: c.is_global === true
+  }));
+}
 
 
-    async function deleteContact(id) {
-        const user = requireUser();
+async function deleteContact(id) {
+  const user = requireUser();
 
-        // Verificamos si es global
-        const { data, error: getErr } = await sb.from('contacts')
-          .select('is_global')
-          .eq('id', id)
-          .maybeSingle();
+  // Confirmación visual
+  if (!confirm("¿Seguro que deseas borrar este contacto?")) return;
 
-        if (getErr) {
-          alert("Error: " + getErr.message);
-          return;
-        }
+  // Intentamos borrar solo si es tuyo
+  const { error } = await sb.from('contacts')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', user.id);
 
-        if (data?.is_global && !ADMIN_EMAILS.includes(user.email.toLowerCase())) {
-          alert("No puedes borrar un contacto global.");
-          return;
-        }
+  if (error) {
+    alert("No se pudo borrar: " + error.message);
+    return;
+  }
 
-        if (!confirm("¿Borrar el contacto seleccionado?")) return;
+  await refreshList();
+  toast("🗑️ Contacto eliminado");
+}
 
-        // 🔹 Intentamos borrar aunque no tenga user_id (contacto huérfano)
-        const { error } = await sb.from('contacts')
-          .delete()
-          .or(`user_id.eq.${user.id},user_id.is.null`)
-          .eq('id', id);
-
-        if (error) {
-          alert("No se pudo borrar: " + error.message);
-          return;
-        }
-
-        if (currentEditId === id) resetForm();
-
-        document.querySelector(`#btn-delete-${id}`)?.closest(".contact-card")?.remove();
-        await refreshList();
-        toast("🗑️ Contacto eliminado");
-      }
 
 
 
@@ -1227,14 +1210,50 @@
         btnDelete.disabled = c.readonly;
         btnDelete.onclick = () => deleteContact(c.id);
 
-        actions.appendChild(btnEdit);
-        actions.appendChild(btnDelete);
+        if (!c.readonly) {
+          actions.appendChild(btnEdit);
+          actions.appendChild(btnDelete);
+        }
+
 
         card.appendChild(main);
         card.appendChild(actions);
         container.appendChild(card);
-      }
+      } 
     }
+
+    //EDITAR CONTATOS 
+
+    async function editContact(id) {
+  const user = requireUser();
+  const { data, error } = await sb.from('contacts')
+    .select('*')
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (error) {
+    alert("No se pudo cargar: " + error.message);
+    return;
+  }
+  if (!data) {
+    alert("No se encontró el contacto o no tienes permiso para editarlo.");
+    return;
+  }
+
+  const c = data;
+  currentEditId = c.id;
+  $("contactName").value = c.name || "";
+  $("contactPhone").value = c.phone || "";
+  $("contactEmail").value = c.email || "";
+  $("contactCodigo").value = c.codigo || "";
+  $("contactCategory").value = c.category || "";
+  $("formLegend").textContent = "Modificar contacto";
+  $("editHint").style.display = "inline";
+  $("btnSave").textContent = "Guardar cambios";
+
+  $("contactName").scrollIntoView({ behavior: "smooth", block: "start" });
+}
 
     /* =========================
        Recordatorios
