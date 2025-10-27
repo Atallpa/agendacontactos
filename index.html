@@ -1042,7 +1042,9 @@
         email: $("contactEmail").value.trim(),
         category: $("contactCategory").value.trim(),
         codigo: $("contactCodigo").value.trim(),
-        is_global: ADMIN_EMAILS.includes((user.email || "").toLowerCase())
+        //is_global: ADMIN_EMAILS.includes((user.email || "").toLowerCase())
+        is_global: ADMIN_EMAILS.includes((user.email || "").toLowerCase()) ? true : false
+
       };
 
       try {
@@ -1069,49 +1071,48 @@
       }
     }
 
-async function getContactsForList() {
-  const user = requireUser();
+    async function getContactsForList() {
+      const user = requireUser();
 
-  // Solo tus contactos y los globales
-  let q = sb.from('contacts')
-    .select('*')
-    .or(`user_id.eq.${user.id},is_global.is.true`);
+      // Solo tus contactos y los globales
+      let q = sb.from('contacts')
+        .select('*')
+        .or(`user_id.eq.${user.id},is_global.is.true`);
 
-  const { data, error } = await q.order('name', { ascending: true });
-  if (error) {
-    alert("Error listando contactos: " + error.message);
-    return [];
-  }
+      const { data, error } = await q.order('name', { ascending: true });
+      if (error) {
+        alert("Error listando contactos: " + error.message);
+        return [];
+      }
 
-  // Marcar como de solo lectura los globales (true literal)
-  return (data || []).map(c => ({
-    ...c,
-    readonly: c.is_global === true
-  }));
-}
+      // Marcar como de solo lectura los globales (true literal)
+      return (data || []).map(c => ({
+        ...c,
+        readonly: c.is_global === true
+      }));
+    }
 
 
 
-async function deleteContact(id) {
-  const user = requireUser();
+    async function deleteContact(id) {
+      const user = requireUser();
+      const isAdmin = ADMIN_EMAILS.includes((user.email || "").toLowerCase());
 
-  // Confirmación visual
-  if (!confirm("¿Seguro que deseas borrar este contacto?")) return;
+      if (!confirm("¿Seguro que deseas borrar este contacto?")) return;
 
-  // Intentamos borrar solo si es tuyo
-  const { error } = await sb.from('contacts')
-    .delete()
-    .eq('id', id)
-    .eq('user_id', user.id);
+      const q = sb.from('contacts').delete().eq('id', id);
+      if (!isAdmin) q.eq('user_id', user.id);
 
-  if (error) {
-    alert("No se pudo borrar: " + error.message);
-    return;
-  }
+      const { error } = await q;
+      if (error) {
+        alert("No se pudo borrar: " + error.message);
+        return;
+      }
 
-  await refreshList();
-  toast("🗑️ Contacto eliminado");
-}
+      await refreshList();
+      toast("🗑️ Contacto eliminado");
+    }
+
 
 
 
@@ -1201,50 +1202,54 @@ async function deleteContact(id) {
         btnDelete.disabled = c.readonly;
         btnDelete.onclick = () => deleteContact(c.id);
 
-        if (!c.readonly) {
+        // Mostrar botones de edición/borrado
+        const isAdmin = ADMIN_EMAILS.includes((currentUser?.email || "").toLowerCase());
+        if (isAdmin || !c.readonly) {
           actions.appendChild(btnEdit);
           actions.appendChild(btnDelete);
         }
 
 
+
         card.appendChild(main);
         card.appendChild(actions);
         container.appendChild(card);
-      } 
+      }
     }
 
     //EDITAR CONTATOS 
 
     async function editContact(id) {
-  const user = requireUser();
-  const { data, error } = await sb.from('contacts')
-    .select('*')
-    .eq('id', id)
-    .eq('user_id', user.id)
-    .maybeSingle();
+      const user = requireUser();
+      const isAdmin = ADMIN_EMAILS.includes((user.email || "").toLowerCase());
 
-  if (error) {
-    alert("No se pudo cargar: " + error.message);
-    return;
-  }
-  if (!data) {
-    alert("No se encontró el contacto o no tienes permiso para editarlo.");
-    return;
-  }
+      const q = sb.from('contacts').select('*').eq('id', id);
+      if (!isAdmin) q.eq('user_id', user.id);
+      const { data, error } = await q.maybeSingle();
 
-  const c = data;
-  currentEditId = c.id;
-  $("contactName").value = c.name || "";
-  $("contactPhone").value = c.phone || "";
-  $("contactEmail").value = c.email || "";
-  $("contactCodigo").value = c.codigo || "";
-  $("contactCategory").value = c.category || "";
-  $("formLegend").textContent = "Modificar contacto";
-  $("editHint").style.display = "inline";
-  $("btnSave").textContent = "Guardar cambios";
+      if (error) {
+        alert("No se pudo cargar: " + error.message);
+        return;
+      }
+      if (!data) {
+        alert("No se encontró el contacto o no tienes permiso para editarlo.");
+        return;
+      }
 
-  $("contactName").scrollIntoView({ behavior: "smooth", block: "start" });
-}
+      const c = data;
+      currentEditId = c.id;
+      $("contactName").value = c.name || "";
+      $("contactPhone").value = c.phone || "";
+      $("contactEmail").value = c.email || "";
+      $("contactCodigo").value = c.codigo || "";
+      $("contactCategory").value = c.category || "";
+      $("formLegend").textContent = "Modificar contacto";
+      $("editHint").style.display = "inline";
+      $("btnSave").textContent = "Guardar cambios";
+
+      $("contactName").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
 
     /* =========================
        Recordatorios
