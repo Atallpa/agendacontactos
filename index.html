@@ -1056,8 +1056,24 @@
           .select(); //
         if (error) { alert("No se pudo actualizar: " + error.message); return; }
       }
+      if (currentEditId == null) {
+        const { error } = await sb.from('contacts').insert(obj).select();
+        if (error) { alert("No se pudo guardar: " + error.message); return; }
+        showPopupMessage("✅ Contacto agregado", "El contacto fue guardado correctamente.");
+      } else {
+        const { error } = await sb.from('contacts')
+          .update(obj)
+          .eq('id', currentEditId)
+          .eq('user_id', user.id)
+          .select();
+        if (error) { alert("No se pudo actualizar: " + error.message); return; }
+        showPopupMessage("✏️ Contacto actualizado", "Los cambios se guardaron correctamente.");
+      }
       resetForm();
       refreshList();
+
+
+
     }
 
 
@@ -1080,9 +1096,10 @@
       const user = requireUser();
       const { data, error } = await sb.from('contacts')
         .select('*')
-        .eq('id', id) // 👈 quitar Number()
+        .eq('id', id)
         .eq('user_id', user.id)
-        .maybeSingle(); // 👈 mejor que .single()
+        .maybeSingle();
+
       if (error) { alert("No se pudo cargar: " + error.message); return; }
       if (!data) { alert("No se encontró el contacto."); return; }
 
@@ -1096,7 +1113,11 @@
       $("formLegend").textContent = "Modificar contacto";
       $("editHint").style.display = "inline";
       $("btnSave").textContent = "Guardar cambios";
+
+      // 👇 desplazarse hacia el formulario
+      $("contactName").scrollIntoView({ behavior: "smooth", block: "start" });
     }
+
 
 
     async function deleteContact(id) {
@@ -1135,6 +1156,9 @@
       // Eliminar visualmente por si acaso
       document.querySelector(`#btn-delete-${id}`)?.closest(".contact-card")?.remove();
       await refreshList();
+
+      showPopupMessage("🗑️ Contacto eliminado", "El contacto se borró correctamente.");
+
 
     }
 
