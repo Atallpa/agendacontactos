@@ -1031,131 +1031,115 @@
       return ok;
     }
 
-   async function saveContact() {
-  if (!validateContactForm()) return;
+    async function saveContact() {
+      if (!validateContactForm()) return;
 
-  const user = requireUser();
-  const obj = {
-    user_id: user.id,
-    name: $("contactName").value.trim(),
-    phone: $("contactPhone").value.trim(),
-    email: $("contactEmail").value.trim(),
-    category: $("contactCategory").value.trim(),
-    codigo: $("contactCodigo").value.trim(),
-    is_global: ADMIN_EMAILS.includes((user.email || "").toLowerCase())
-  };
-
-  try {
-    if (currentEditId == null) {
-      // 🔹 Crear nuevo contacto (sin .select() para evitar error falso)
-      const { error } = await sb.from('contacts').insert(obj);
-      if (error) throw error;
-
-      showPopupMessage("✅ Contacto agregado", "El contacto fue guardado correctamente.");
-    } else {
-      // 🔹 Editar contacto existente
-      const { error } = await sb.from('contacts')
-        .update(obj)
-        .eq('id', currentEditId) // 👈 no usar Number()
-        .eq('user_id', user.id);
-      if (error) throw error;
-
-      showPopupMessage("✏️ Contacto actualizado", "Los cambios se guardaron correctamente.");
-    }
-
-    resetForm();
-    await refreshList();
-  } catch (err) {
-    alert("No se pudo guardar: " + (err?.message || err));
-  }
-}
-
-
-
-    async function getContactsForList() {
-      let q = sb.from('contacts').select('*');
-      const fName = normalize($("filterName").value);
-      const fEmail = normalize($("filterEmail").value);
-      const fPhone = normalize($("filterPhone").value);
-      const fCatVal = $("filterCategory").value;
-      if (fName) q = q.ilike('name', `%${fName}%`);
-      if (fEmail) q = q.ilike('email', `%${fEmail}%`);
-      if (fPhone) q = q.ilike('phone', `%${fPhone}%`);
-      if (fCatVal && fCatVal !== 'all') q = q.eq('category', fCatVal);
-      const { data, error } = await q.order('name', { ascending: true });
-      if (error) { alert("Error listando contactos: " + error.message); return []; }
-      return (data || []).map(c => ({ ...c, readonly: c.is_global === true }));
-    }
-
-    async function editContact(id) {
       const user = requireUser();
-      const { data, error } = await sb.from('contacts')
-        .select('*')
-        .eq('id', id)
-        .eq('user_id', user.id)
-        .maybeSingle();
+      const obj = {
+        user_id: user.id,
+        name: $("contactName").value.trim(),
+        phone: $("contactPhone").value.trim(),
+        email: $("contactEmail").value.trim(),
+        category: $("contactCategory").value.trim(),
+        codigo: $("contactCodigo").value.trim(),
+        is_global: ADMIN_EMAILS.includes((user.email || "").toLowerCase())
+      };
 
-      if (error) { alert("No se pudo cargar: " + error.message); return; }
-      if (!data) { alert("No se encontró el contacto."); return; }
+      try {
+        if (!currentEditId) {
+          // 👇 solo insertamos, sin .select()
+          const { error } = await sb.from('contacts').insert(obj);
+          if (error) throw error;
+          toast("✅ Contacto agregado");
+        } else {
+          // 👇 actualización segura (sin Number)
+          const { error } = await sb.from('contacts')
+            .update(obj)
+            .eq('id', currentEditId)
+            .eq('user_id', user.id);
+          if (error) throw error;
+          toast("✏️ Contacto actualizado");
+        }
 
-      const c = data;
-      currentEditId = c.id;
-      $("contactName").value = c.name || "";
-      $("contactPhone").value = c.phone || "";
-      $("contactEmail").value = c.email || "";
-      $("contactCodigo").value = c.codigo || "";
-      $("contactCategory").value = c.category || "";
-      $("formLegend").textContent = "Modificar contacto";
-      $("editHint").style.display = "inline";
-      $("btnSave").textContent = "Guardar cambios";
-
-      // 👇 desplazarse hacia el formulario
-      $("contactName").scrollIntoView({ behavior: "smooth", block: "start" });
+        resetForm();
+        await refreshList();
+      } catch (err) {
+        console.error(err);
+        alert("No se pudo guardar: " + (err?.message || err));
+      }
     }
+
+
+  async function getContactsForList() {
+    const user = requireUser();
+
+    // 👇 Filtramos solo los del usuario actual o los globales
+    let q = sb.from('contacts')
+      .select('*')
+      .or(`user_id.eq.${user.id},is_global.eq.true`);
+
+    const fName = normalize($("filterName").value);
+    const fEmail = normalize($("filterEmail").value);
+    const fPhone = normalize($("filterPhone").value);
+    const fCatVal = $("filterCategory").value;
+
+    if (fName) q = q.ilike('name', `%${fName}%`);
+    if (fEmail) q = q.ilike('email', `%${fEmail}%`);
+    if (fPhone) q = q.ilike('phone', `%${fPhone}%`);
+    if (fCatVal && fCatVal !== 'all') q = q.eq('category', fCatVal);
+
+    const { data, error } = await q.order('name', { ascending: true });
+    if (error) {
+      alert("Error listando contactos: " + error.message);
+      return [];
+    }
+
+    // ⚠️ Filtramos los sin user_id y no globales (huérfanos)
+    return (data || []).filter(c => c.user_id || c.is_global)
+      .map(c => ({ ...c, readonly: c.is_global === true }));
+  }
 
 
 
     async function deleteContact(id) {
-      const user = requireUser();
+        const user = requireUser();
 
-      // Primero, comprobamos si es global
-      const { data, error: getErr } = await sb.from('contacts')
-        .select('is_global')
-        .eq('id', id) // 👈 quitar Number()
-        .maybeSingle(); // 👈 mejor que .single()
+        // Verificamos si es global
+        const { data, error: getErr } = await sb.from('contacts')
+          .select('is_global')
+          .eq('id', id)
+          .maybeSingle();
 
-      if (getErr) {
-        alert("Error: " + getErr.message);
-        return;
+        if (getErr) {
+          alert("Error: " + getErr.message);
+          return;
+        }
+
+        if (data?.is_global && !ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+          alert("No puedes borrar un contacto global.");
+          return;
+        }
+
+        if (!confirm("¿Borrar el contacto seleccionado?")) return;
+
+        // 🔹 Intentamos borrar aunque no tenga user_id (contacto huérfano)
+        const { error } = await sb.from('contacts')
+          .delete()
+          .or(`user_id.eq.${user.id},user_id.is.null`)
+          .eq('id', id);
+
+        if (error) {
+          alert("No se pudo borrar: " + error.message);
+          return;
+        }
+
+        if (currentEditId === id) resetForm();
+
+        document.querySelector(`#btn-delete-${id}`)?.closest(".contact-card")?.remove();
+        await refreshList();
+        toast("🗑️ Contacto eliminado");
       }
 
-      if (data?.is_global && !ADMIN_EMAILS.includes(user.email.toLowerCase())) {
-        alert("No puedes borrar un contacto global.");
-        return;
-      }
-
-      if (!confirm("¿Borrar el contacto seleccionado?")) return;
-
-      const { error } = await sb.from('contacts')
-        .delete()
-        .eq('id', id) // 👈 quitar Number()
-        .eq('user_id', user.id);
-
-      if (error) {
-        alert("No se pudo borrar: " + error.message);
-        return;
-      }
-
-      if (currentEditId === id) resetForm();
-
-      // Eliminar visualmente por si acaso
-      document.querySelector(`#btn-delete-${id}`)?.closest(".contact-card")?.remove();
-      await refreshList();
-
-      showPopupMessage("🗑️ Contacto eliminado", "El contacto se borró correctamente.");
-
-
-    }
 
 
 
