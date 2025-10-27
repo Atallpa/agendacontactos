@@ -1078,17 +1078,26 @@
 
     async function editContact(id) {
       const user = requireUser();
-      const { data, error } = await sb.from('contacts').select('*').eq('id', Number(id)).eq('user_id', user.id).single();
+      const { data, error } = await sb.from('contacts')
+        .select('*')
+        .eq('id', id) // 👈 quitar Number()
+        .eq('user_id', user.id)
+        .maybeSingle(); // 👈 mejor que .single()
       if (error) { alert("No se pudo cargar: " + error.message); return; }
+      if (!data) { alert("No se encontró el contacto."); return; }
+
       const c = data;
       currentEditId = c.id;
       $("contactName").value = c.name || "";
       $("contactPhone").value = c.phone || "";
       $("contactEmail").value = c.email || "";
       $("contactCodigo").value = c.codigo || "";
-      $("contactCategory").value = (c.category || "");
-      $("formLegend").textContent = "Modificar contacto"; $("editHint").style.display = "inline"; $("btnSave").textContent = "Guardar cambios";
+      $("contactCategory").value = c.category || "";
+      $("formLegend").textContent = "Modificar contacto";
+      $("editHint").style.display = "inline";
+      $("btnSave").textContent = "Guardar cambios";
     }
+
 
     async function deleteContact(id) {
   const user = requireUser();
