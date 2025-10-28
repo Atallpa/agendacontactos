@@ -1044,7 +1044,7 @@
       try {
         // Limpia recordatorios anteriores antes de cargar todo
         clearAllReminderTimers();
-         sessionStorage.removeItem(`${SB_NS}:ss`);
+         
 
         // Obtener usuario actual
         const { data, error } = await sb.auth.getUser();
@@ -1077,6 +1077,8 @@
 
         // Mostrar popup de bienvenida
         showOverlay('welcomePopup', true);
+
+        sessionStorage.removeItem(`${SB_NS}:ss`);
 
       } catch (err) {
         console.error("Error en afterAuth():", err);
