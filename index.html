@@ -850,32 +850,31 @@
     </fieldset>
   </div>
   <script type="module">
-    import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+/* =========================
+   Supabase: Singleton Global Seguro
+   ========================= */
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-    const SUPABASE_URL = "https://euejoapezqbflobpdklk.supabase.co";
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZWpvYXBlenFiZmxvYnBka2xrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0MTU0MTMsImV4cCI6MjA3Mjk5MTQxM30.BwK_NSGHOFjjitsjdJy0cCo9TQSwd49UjL5FoEOoaB4";
+const SUPABASE_URL = "https://euejoapezqbflobpdklk.supabase.co";
+const SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1ZWpvYXBlenFiZmxvYnBka2xrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc0MTU0MTMsImV4cCI6MjA3Mjk5MTQxM30.BwK_NSGHOFjjitsjdJy0cCo9TQSwd49UjL5FoEOoaB4";
 
-    /* =========================
-       Supabase: Singleton (solo sessionStorage)
-       ========================= */
-    const SB_NS = "guia-tel";
-    const SS_KEY = `${SB_NS}:ss`; // storageKey fijo para sessionStorage
+// 🔹 Crear solo UNA instancia global (aunque el script se recargue)
+if (!window.__SB_SINGLETON__) {
+  window.__SB_SINGLETON__ = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      storage: sessionStorage,
+      storageKey: "guia-tel:ss",
+    },
+  });
+}
 
-    function makeClient() {
-      return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: {
-          persistSession: true,
-          autoRefreshToken: true,
-          storage: sessionStorage,
-          storageKey: SS_KEY
-        }
-      });
-    }
+// 🔹 Exponer el cliente globalmente (usable en toda la app y consola)
+window.sb = window.__SB_SINGLETON__;
+const sb = window.sb; // 👈 accesible en todo el archivo
 
-    // Única instancia global
-    let sb = window.__SB_SINGLETON__ || makeClient();
-    window.__SB_SINGLETON__ = sb;
-    window.supabase = sb;
 
     /* =========================
        Utils UI / Estado
@@ -2345,4 +2344,3 @@ async function afterAuth() {
 </body>
 
 </html>
-
