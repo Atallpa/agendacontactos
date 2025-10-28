@@ -1066,7 +1066,7 @@
         // Cargar datos de Supabase
         await ensureCategoryOptions();
         await refreshList();
-        await refreshRemindersTable();
+       // await refreshRemindersTable();
 
         // Reiniciar recordatorios (evita duplicados)
         clearAllReminderTimers();
@@ -1806,62 +1806,62 @@
       }
     }
 
-   async function scheduleReminder() {
-      try {
-        const date = $('remDate').value;
-        const time = $('remTime').value;
-        const msg = $('remMsg').value.trim();
-        const repeat = $('remRepeat').checked;
+   
+    async function scheduleReminder() {
+  try {
+    const date = $('remDate').value;
+    const time = $('remTime').value;
+    const msg = $('remMsg').value.trim();
+    const repeat = $('remRepeat').checked;
 
-        if (!date || !time || !msg) {
-          alert('Completa fecha, hora y mensaje.');
-          return;
-        }
-
-        const target = new Date(`${date}T${time}`);
-        if (isNaN(target.getTime())) {
-          alert('Fecha u hora no válidas.');
-          return;
-        }
-        if (target.getTime() <= Date.now()) {
-          alert('La fecha y hora deben ser futuras.');
-          return;
-        }
-
-        // 🔹 1. Insertar en Supabase
-        const id = await addReminder({ message: msg, whenTs: target.getTime(), repeat });
-        if (!id) return;
-
-        // 🔹 2. Pequeña pausa opcional (por si Supabase tarda en confirmar)
-        await new Promise(r => setTimeout(r, 300));
-
-        // 🔹 3. Refrescar tabla (solo una vez)
-        await refreshRemindersTable();
-
-        // 🔹 4. Solo añadir el nuevo recordatorio en memoria (sin reprocesar todos)
-        const list = await getMyReminders();
-        const newRem = list.find(r => r.id === id);
-        if (newRem) scheduleReminderInMemory(newRem);
-
-        // 🔹 5. Actualizar interfaz
-        $('reminderStatus').textContent =
-          `Guardado para ${target.toLocaleString()}${repeat ? ' (cada 10 min)' : ''}.`;
-
-        setTimeout(() => {
-          showOverlay('reminderFormPopup', false);
-          $('reminderStatus').textContent = '';
-          $('remDate').value = '';
-          $('remTime').value = '';
-          $('remMsg').value = '';
-          $('remRepeat').checked = false;
-          toast('Recordatorio programado');
-        }, 700);
-
-      } catch (err) {
-        console.error("Excepción en scheduleReminder():", err);
-        alert("Ocurrió un problema al guardar el recordatorio. Intenta nuevamente.");
-      }
+    if (!date || !time || !msg) {
+      alert('Completa fecha, hora y mensaje.');
+      return;
     }
+
+    const target = new Date(`${date}T${time}`);
+    if (isNaN(target.getTime())) {
+      alert('Fecha u hora no válidas.');
+      return;
+    }
+    if (target.getTime() <= Date.now()) {
+      alert('La fecha y hora deben ser futuras.');
+      return;
+    }
+
+    // 1️⃣ Guardar en Supabase
+    const id = await addReminder({ message: msg, whenTs: target.getTime(), repeat });
+    if (!id) return;
+
+    // 2️⃣ Esperar confirmación
+    await new Promise(r => setTimeout(r, 200));
+
+    // 3️⃣ Cargar solo el nuevo recordatorio
+    const list = await getMyReminders();
+    const rem = list.find(r => r.id === id);
+
+    if (rem) scheduleReminderInMemory(rem);
+
+    // 4️⃣ Actualizar la tabla (solo una vez)
+    await refreshRemindersTable();
+
+    // 5️⃣ Limpiar formulario y cerrar
+    $('reminderStatus').textContent = `Guardado para ${target.toLocaleString()}${repeat ? ' (cada 10 min)' : ''}.`;
+    setTimeout(() => {
+      showOverlay('reminderFormPopup', false);
+      $('reminderStatus').textContent = '';
+      $('remDate').value = '';
+      $('remTime').value = '';
+      $('remMsg').value = '';
+      $('remRepeat').checked = false;
+      toast('Recordatorio programado');
+    }, 700);
+
+  } catch (err) {
+    console.error("Excepción en scheduleReminder():", err);
+    alert("Ocurrió un problema al guardar el recordatorio. Intenta nuevamente.");
+  }
+}
 
 
 
@@ -2166,7 +2166,12 @@
       $('btnLogout')?.addEventListener('click', logout);
 
       // Recordatorios & varios
-      $('btnOpenRemForm')?.addEventListener('click', async () => { showOverlay('reminderFormPopup', true); await refreshRemindersTable(); });
+     $('btnOpenRemForm')?.addEventListener('click', () => { 
+  showOverlay('reminderFormPopup', true); 
+});
+
+
+
       $('btnCancelRemForm')?.addEventListener('click', () => showOverlay('reminderFormPopup', false));
       $('tabFormBtn')?.addEventListener('click', () => { });
       $('tabListBtn')?.addEventListener('click', async () => { await refreshRemindersTable(); });
