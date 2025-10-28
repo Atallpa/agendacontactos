@@ -1078,7 +1078,7 @@
         // Mostrar popup de bienvenida
         showOverlay('welcomePopup', true);
 
-        sessionStorage.removeItem(`${SB_NS}:ss`);
+        sessionStorage.removeItem(SS_KEY);
 
       } catch (err) {
         console.error("Error en afterAuth():", err);
