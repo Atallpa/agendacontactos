@@ -1032,6 +1032,8 @@
       try {
         clearAllReminderTimers(); // <- limpiar recordatorios en memoria
         await sb.auth.signOut();
+        sessionStorage.clear();
+
       } catch (e) {
         alert('No se pudo cerrar sesión: ' + (e?.message || e));
       }
@@ -1078,7 +1080,7 @@
         // Mostrar popup de bienvenida
         showOverlay('welcomePopup', true);
 
-        sessionStorage.removeItem(SS_KEY);
+       
 
       } catch (err) {
         console.error("Error en afterAuth():", err);
