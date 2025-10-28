@@ -2087,6 +2087,31 @@
           }
         }
 
+        // Dedupe contra la DB (evita insertar recordatorios ya existentes)
+        try {
+          const { data: existingRemsData, error: existErr } = await sb
+            .from('reminders')
+            .select('when_ts,message')
+            .eq('user_id', currentUser.id);
+
+          if (!existErr && Array.isArray(existingRemsData)) {
+            const existingKeys = new Set(existingRemsData.map(x => `${x.when_ts}|${(x.message||'').trim().toLowerCase()}`));
+            // filtrar
+            const filtered = remindersToInsert.filter(r => {
+              const key = `${r.when_ts}|${(r.message||'').trim().toLowerCase()}`;
+              return !existingKeys.has(key);
+            });
+            // reasignar solo si se han filtrado duplicados
+            if (filtered.length !== remindersToInsert.length) {
+              console.info(`Import: eliminado ${remindersToInsert.length - filtered.length} recordatorio(s) duplicados contra DB.`);
+            }
+            remindersToInsert.length = 0;
+            remindersToInsert.push(...filtered);
+          }
+        } catch (dedupErr) {
+          console.warn("No se pudo deduplicar contra DB:", dedupErr);
+        }
+
         async function batchInsert(table, rows, size = 500) {
           try {
             if (!Array.isArray(rows) || rows.length === 0) {
@@ -2149,14 +2174,17 @@
 
     //function clearAllReminderTimers() { for (const e of reminderTimers.values()) { try { if (e.timeoutId) clearTimeout(e.timeoutId); if (e.intervalId) clearInterval(e.intervalId); } catch { } } reminderTimers.clear(); }
     function clearAllReminderTimers() {
-        console.log("Limpiando todos los temporizadores de recordatorios...");
-        for (const [id, timerId] of reminderTimers.entries()) {
-          clearTimeout(timerId); // O clearInterval si usas setInterval
+        // Limpia correctamente timeoutId e intervalId guardados en el Map
+        for (const [id, entry] of reminderTimers.entries()) {
+          try {
+            if (entry && typeof entry === 'object') {
+              if (entry.timeoutId) clearTimeout(entry.timeoutId);
+              if (entry.intervalId) clearInterval(entry.intervalId);
+            }
+          } catch (e) { /* ignore */ }
         }
-        reminderTimers.clear(); // Vacía el Map para empezar de nuevo
-        // ¡MUY IMPORTANTE!: También debes limpiar cualquier temporizador 
-        // que maneje la repetición (si se usa setInterval)
-      }
+        reminderTimers.clear();
+    }
     /* =========================
        DOMContentLoaded
        ========================= */
