@@ -1027,72 +1027,95 @@
       }
     }
 
+let __authRunning = false;
+let isLoggingOut = false; // nuevo flag de seguridad
 
-    async function logout() {
-      try {
-        clearAllReminderTimers(); // <- limpiar recordatorios en memoria
-        await sb.auth.signOut();
-        sessionStorage.clear();
+async function logout() {
+  // Evita que se dispare dos veces por error
+  if (isLoggingOut) return;
+  isLoggingOut = true;
 
-      } catch (e) {
-        alert('No se pudo cerrar sesión: ' + (e?.message || e));
-      }
+  try {
+    // 🔹 Limpiar recordatorios activos
+    clearAllReminderTimers();
+
+    // 🔹 Cerrar sesión en Supabase
+    await sb.auth.signOut();
+
+    // 🔹 Borrar toda la sesión guardada localmente
+    sessionStorage.clear();
+
+    // 🔹 Restaurar la interfaz al estado inicial
+    currentUser = null;
+    $('app').style.display = 'none';
+    showLogin();
+
+    toast("Sesión cerrada correctamente.");
+  } catch (e) {
+    console.error("Error en logout():", e);
+    alert("No se pudo cerrar sesión: " + (e?.message || e));
+  } finally {
+    // 🔹 Este bloque SIEMPRE se ejecuta (éxito o error)
+    isLoggingOut = false;
+    __authRunning = false; // asegúrate de que no quede trabado
+  }
+}
+
+
+async function afterAuth() {
+  // Evita que se ejecute dos veces en paralelo
+  if (__authRunning) return;
+  __authRunning = true;
+
+  try {
+    clearAllReminderTimers();
+
+    // 🔹 Obtener usuario actual
+    const { data, error } = await sb.auth.getUser();
+    if (error) throw new Error("No se pudo obtener el usuario: " + error.message);
+
+    currentUser = data?.user || null;
+    if (!currentUser) {
+      console.warn("afterAuth(): no hay usuario autenticado.");
+      showLogin();
+      return;
     }
 
-    let __authRunning = false;
-    async function afterAuth() {
-      if (__authRunning) return;  // evita duplicaciones simultáneas
-      __authRunning = true;
-      try {
-        // Limpia recordatorios anteriores antes de cargar todo
-        clearAllReminderTimers();
-         
+    // 🔹 Mostrar interfaz principal
+    $('loginBox').style.display = "none";
+    $('registerBox').style.display = "none";
+    $('app').style.display = "block";
+    $('userName').textContent = currentUser.email || "";
 
-        // Obtener usuario actual
-        const { data, error } = await sb.auth.getUser();
-        if (error) throw new Error("No se pudo obtener el usuario: " + error.message);
+    // 🔹 Inicializar la UI
+    resetForm();
 
-        currentUser = data?.user || null;
-        if (!currentUser) {
-          console.warn("afterAuth(): no hay usuario autenticado.");
-          showLogin();
-          return;
-        }
+    // 🔹 Cargar datos
+    await ensureCategoryOptions();
+    await refreshList();
 
-        // Mostrar interfaz principal
-        $('loginBox').style.display = "none";
-        $('registerBox').style.display = "none";
-        $('app').style.display = "block";
-        $('userName').textContent = currentUser.email || "";
+    // 🔹 Reiniciar recordatorios
+    clearAllReminderTimers();
+    await loadAndScheduleReminders();
 
-        // Inicializar la UI
-        resetForm();
+    // 🔹 Mostrar popup de bienvenida
+    showOverlay('welcomePopup', true);
 
-        // Cargar datos de Supabase
-        await ensureCategoryOptions();
-        await refreshList();
-        // await refreshRemindersTable();
+  } catch (err) {
+    console.error("Error en afterAuth():", err);
+    alert("Ocurrió un problema al cargar tus datos. Intenta volver a iniciar sesión.");
 
-        // Reiniciar recordatorios (evita duplicados)
-        clearAllReminderTimers();
-        await loadAndScheduleReminders();
+    try {
+      showLogin();
+      $('app').style.display = 'none';
+    } catch { }
 
-        // Mostrar popup de bienvenida
-        showOverlay('welcomePopup', true);
+  } finally {
+    // 👇 Esto garantiza que nunca quede “bloqueado” para próximos logins
+    __authRunning = false;
+  }
+}
 
-       
-
-      } catch (err) {
-        console.error("Error en afterAuth():", err);
-        alert("Ocurrió un problema al cargar tus datos. Intenta volver a iniciar sesión.");
-
-        // En caso de error grave, forzar vista de login
-        try {
-          showLogin();
-          $('app').style.display = 'none';
-        } catch { }
-      }
-    }
 
 
     window.addEventListener('beforeunload', () => { try { authSubscription?.unsubscribe(); } catch { } });
