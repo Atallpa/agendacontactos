@@ -1806,124 +1806,126 @@
       }
     }
 
-    async function scheduleReminder() {
-  try {
-    const date = $('remDate').value;
-    const time = $('remTime').value;
-    const msg = $('remMsg').value.trim();
-    const repeat = $('remRepeat').checked;
-
-    if (!date || !time || !msg) {
-      alert('Completa fecha, hora y mensaje.');
-      return;
-    }
-
-    const target = new Date(`${date}T${time}`);
-    if (isNaN(target.getTime())) {
-      alert('Fecha u hora no válidas.');
-      return;
-    }
-    if (target.getTime() <= Date.now()) {
-      alert('La fecha y hora deben ser futuras.');
-      return;
-    }
-
-    // 🔹 1. Insertar en Supabase
-    const id = await addReminder({ message: msg, whenTs: target.getTime(), repeat });
-    if (!id) return;
-
-    // 🔹 2. Pequeña pausa opcional (por si Supabase tarda en confirmar)
-    await new Promise(r => setTimeout(r, 300));
-
-    // 🔹 3. Actualizar tabla desde Supabase
-    await refreshRemindersTable();
-
-    // 🔹 4. Reprogramar todos los recordatorios en memoria (sin duplicar)
-    clearAllReminderTimers();
-    await loadAndScheduleReminders();
-
-    // 🔹 5. Actualizar interfaz
-    $('reminderStatus').textContent =
-      `Guardado para ${target.toLocaleString()}${repeat ? ' (cada 10 min)' : ''}.`;
-
-    setTimeout(() => {
-      showOverlay('reminderFormPopup', false);
-      $('reminderStatus').textContent = '';
-      $('remDate').value = '';
-      $('remTime').value = '';
-      $('remMsg').value = '';
-      $('remRepeat').checked = false;
-      toast('Recordatorio programado');
-    }, 700);
-
-  } catch (err) {
-    console.error("Excepción en scheduleReminder():", err);
-    alert("Ocurrió un problema al guardar el recordatorio. Intenta nuevamente.");
-  }
-}
-
-
-    function showReminderPopup(message, repeating) {
-      $('reminderPopup').style.display = 'none'; // cerrar si estaba abierto
-      $('reminderText').textContent = message;
-      $('reminderPopup').style.display = 'flex';
-      $('btnStopRepeat').style.display = repeating ? 'inline-block' : 'none';
-    }
-    async function stopRepeatForCurrent() {
+   async function scheduleReminder() {
       try {
-        if (currentPopupReminderId == null) {
-          const popup = $('reminderPopup');
-          if (popup) popup.style.display = 'none';
+        const date = $('remDate').value;
+        const time = $('remTime').value;
+        const msg = $('remMsg').value.trim();
+        const repeat = $('remRepeat').checked;
+
+        if (!date || !time || !msg) {
+          alert('Completa fecha, hora y mensaje.');
           return;
         }
 
+        const target = new Date(`${date}T${time}`);
+        if (isNaN(target.getTime())) {
+          alert('Fecha u hora no válidas.');
+          return;
+        }
+        if (target.getTime() <= Date.now()) {
+          alert('La fecha y hora deben ser futuras.');
+          return;
+        }
+
+        // 🔹 1. Insertar en Supabase
+        const id = await addReminder({ message: msg, whenTs: target.getTime(), repeat });
+        if (!id) return;
+
+        // 🔹 2. Pequeña pausa opcional (por si Supabase tarda en confirmar)
+        await new Promise(r => setTimeout(r, 300));
+
+        // 🔹 3. Refrescar tabla (solo una vez)
+        await refreshRemindersTable();
+
+        // 🔹 4. Solo añadir el nuevo recordatorio en memoria (sin reprocesar todos)
         const list = await getMyReminders();
-        if (!Array.isArray(list)) {
-          throw new Error("No se pudo obtener la lista de recordatorios.");
-        }
+        const newRem = list.find(r => r.id === id);
+        if (newRem) scheduleReminderInMemory(newRem);
 
-        const rem = list.find(x => x.id === currentPopupReminderId);
-        if (rem) {
-          rem.active = false;
+        // 🔹 5. Actualizar interfaz
+        $('reminderStatus').textContent =
+          `Guardado para ${target.toLocaleString()}${repeat ? ' (cada 10 min)' : ''}.`;
 
-          // Actualizar en base de datos
-          const ok = await updateReminder(rem);
-          if (ok === false) {
-            console.warn("No se pudo desactivar el recordatorio:", rem.id);
-          }
-
-          // Limpiar timers activos
-          const e = reminderTimers.get(rem.id);
-          if (e) {
-            try {
-              if (e.timeoutId) clearTimeout(e.timeoutId);
-              if (e.intervalId) clearInterval(e.intervalId);
-            } catch (timerErr) {
-              console.error("Error al limpiar timers de recordatorio:", timerErr);
-            }
-          }
-          reminderTimers.delete(rem.id);
-
-          await refreshRemindersTable();
-        } else {
-          console.warn("No se encontró el recordatorio actual en la lista.");
-        }
+        setTimeout(() => {
+          showOverlay('reminderFormPopup', false);
+          $('reminderStatus').textContent = '';
+          $('remDate').value = '';
+          $('remTime').value = '';
+          $('remMsg').value = '';
+          $('remRepeat').checked = false;
+          toast('Recordatorio programado');
+        }, 700);
 
       } catch (err) {
-        console.error("Excepción en stopRepeatForCurrent():", err);
-        alert("Ocurrió un problema al detener el recordatorio repetido.");
-      } finally {
-        // 🔹 Asegurar cierre del popup y reinicio del estado
-        try {
-          const popup = $('reminderPopup');
-          if (popup) popup.style.display = 'none';
-        } catch (closeErr) {
-          console.warn("Error al cerrar el popup de recordatorio:", closeErr);
-        }
-        currentPopupReminderId = null;
+        console.error("Excepción en scheduleReminder():", err);
+        alert("Ocurrió un problema al guardar el recordatorio. Intenta nuevamente.");
       }
     }
 
+
+
+    function showReminderPopup(message, repeating) {
+        $('reminderPopup').style.display = 'none'; // cerrar si estaba abierto
+        $('reminderText').textContent = message;
+        $('reminderPopup').style.display = 'flex';
+        $('btnStopRepeat').style.display = repeating ? 'inline-block' : 'none';
+      }
+      async function stopRepeatForCurrent() {
+        try {
+          if (currentPopupReminderId == null) {
+            const popup = $('reminderPopup');
+            if (popup) popup.style.display = 'none';
+            return;
+          }
+
+          const list = await getMyReminders();
+          if (!Array.isArray(list)) {
+            throw new Error("No se pudo obtener la lista de recordatorios.");
+          }
+
+          const rem = list.find(x => x.id === currentPopupReminderId);
+          if (rem) {
+            rem.active = false;
+
+            // Actualizar en base de datos
+            const ok = await updateReminder(rem);
+            if (ok === false) {
+              console.warn("No se pudo desactivar el recordatorio:", rem.id);
+            }
+
+            // Limpiar timers activos
+            const e = reminderTimers.get(rem.id);
+            if (e) {
+              try {
+                if (e.timeoutId) clearTimeout(e.timeoutId);
+                if (e.intervalId) clearInterval(e.intervalId);
+              } catch (timerErr) {
+                console.error("Error al limpiar timers de recordatorio:", timerErr);
+              }
+            }
+            reminderTimers.delete(rem.id);
+
+            await refreshRemindersTable();
+          } else {
+            console.warn("No se encontró el recordatorio actual en la lista.");
+          }
+
+        } catch (err) {
+          console.error("Excepción en stopRepeatForCurrent():", err);
+          alert("Ocurrió un problema al detener el recordatorio repetido.");
+        } finally {
+          // 🔹 Asegurar cierre del popup y reinicio del estado
+          try {
+            const popup = $('reminderPopup');
+            if (popup) popup.style.display = 'none';
+          } catch (closeErr) {
+            console.warn("Error al cerrar el popup de recordatorio:", closeErr);
+          }
+          currentPopupReminderId = null;
+        }
+      }
+    
 
     async function requestNotificationsViaCheckbox(e) {
       if (!e.target.checked) return;
