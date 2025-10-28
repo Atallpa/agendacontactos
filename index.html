@@ -1807,63 +1807,60 @@
     }
 
     async function scheduleReminder() {
-      try {
-        const date = $('remDate').value;
-        const time = $('remTime').value;
-        const msg = $('remMsg').value.trim();
-        const repeat = $('remRepeat').checked;
+  try {
+    const date = $('remDate').value;
+    const time = $('remTime').value;
+    const msg = $('remMsg').value.trim();
+    const repeat = $('remRepeat').checked;
 
-        if (!date || !time || !msg) {
-          alert('Completa fecha, hora y mensaje.');
-          return;
-        }
-
-        const target = new Date(`${date}T${time}`);
-        if (isNaN(target.getTime())) {
-          alert('Fecha u hora no válidas.');
-          return;
-        }
-        if (target.getTime() <= Date.now()) {
-          alert('La fecha y hora deben ser futuras.');
-          return;
-        }
-
-        // 🔹 Insertar en Supabase
-        const id = await addReminder({ message: msg, whenTs: target.getTime(), repeat });
-        if (!id) return;
-
-        // 🔹 Esperar medio segundo antes de leer de nuevo
-        await new Promise(r => setTimeout(r, 500));
-
-        // 🔹 Reconsultar lista actualizada desde Supabase
-        const list = await getMyReminders();
-        const rem = list.find(r => r.id === id);
-
-        // 🔹 Programar en memoria si existe
-        if (rem) scheduleReminderInMemory(rem);
-
-        // 🔹 Actualizar interfaz
-        $('reminderStatus').textContent =
-          `Guardado para ${target.toLocaleString()}${repeat ? ' (cada 10 min)' : ''}.`;
-
-        setTimeout(() => {
-          showOverlay('reminderFormPopup', false);
-          $('reminderStatus').textContent = '';
-          $('remDate').value = '';
-          $('remTime').value = '';
-          $('remMsg').value = '';
-          $('remRepeat').checked = false;
-          toast('Recordatorio programado');
-        }, 700);
-
-        // 🔹 Refrescar tabla después de una breve espera adicional
-        setTimeout(refreshRemindersTable, 700);
-
-      } catch (err) {
-        console.error("Excepción en scheduleReminder():", err);
-        alert("Ocurrió un problema al guardar el recordatorio. Intenta nuevamente.");
-      }
+    if (!date || !time || !msg) {
+      alert('Completa fecha, hora y mensaje.');
+      return;
     }
+
+    const target = new Date(`${date}T${time}`);
+    if (isNaN(target.getTime())) {
+      alert('Fecha u hora no válidas.');
+      return;
+    }
+    if (target.getTime() <= Date.now()) {
+      alert('La fecha y hora deben ser futuras.');
+      return;
+    }
+
+    // 🔹 1. Insertar en Supabase
+    const id = await addReminder({ message: msg, whenTs: target.getTime(), repeat });
+    if (!id) return;
+
+    // 🔹 2. Pequeña pausa opcional (por si Supabase tarda en confirmar)
+    await new Promise(r => setTimeout(r, 300));
+
+    // 🔹 3. Actualizar tabla desde Supabase
+    await refreshRemindersTable();
+
+    // 🔹 4. Reprogramar todos los recordatorios en memoria (sin duplicar)
+    clearAllReminderTimers();
+    await loadAndScheduleReminders();
+
+    // 🔹 5. Actualizar interfaz
+    $('reminderStatus').textContent =
+      `Guardado para ${target.toLocaleString()}${repeat ? ' (cada 10 min)' : ''}.`;
+
+    setTimeout(() => {
+      showOverlay('reminderFormPopup', false);
+      $('reminderStatus').textContent = '';
+      $('remDate').value = '';
+      $('remTime').value = '';
+      $('remMsg').value = '';
+      $('remRepeat').checked = false;
+      toast('Recordatorio programado');
+    }, 700);
+
+  } catch (err) {
+    console.error("Excepción en scheduleReminder():", err);
+    alert("Ocurrió un problema al guardar el recordatorio. Intenta nuevamente.");
+  }
+}
 
 
     function showReminderPopup(message, repeating) {
