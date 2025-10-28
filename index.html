@@ -2147,8 +2147,16 @@
     }
 
 
-    function clearAllReminderTimers() { for (const e of reminderTimers.values()) { try { if (e.timeoutId) clearTimeout(e.timeoutId); if (e.intervalId) clearInterval(e.intervalId); } catch { } } reminderTimers.clear(); }
-
+    //function clearAllReminderTimers() { for (const e of reminderTimers.values()) { try { if (e.timeoutId) clearTimeout(e.timeoutId); if (e.intervalId) clearInterval(e.intervalId); } catch { } } reminderTimers.clear(); }
+    function clearAllReminderTimers() {
+        console.log("Limpiando todos los temporizadores de recordatorios...");
+        for (const [id, timerId] of reminderTimers.entries()) {
+          clearTimeout(timerId); // O clearInterval si usas setInterval
+        }
+        reminderTimers.clear(); // Vacía el Map para empezar de nuevo
+        // ¡MUY IMPORTANTE!: También debes limpiar cualquier temporizador 
+        // que maneje la repetición (si se usa setInterval)
+      }
     /* =========================
        DOMContentLoaded
        ========================= */
