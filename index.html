@@ -1037,8 +1037,10 @@
       }
     }
 
-
+    let __authRunning = false;
     async function afterAuth() {
+      if (__authRunning) return;  // evita duplicaciones simultáneas
+      __authRunning = true;
       try {
         // Limpia recordatorios anteriores antes de cargar todo
         clearAllReminderTimers();
@@ -1066,7 +1068,7 @@
         // Cargar datos de Supabase
         await ensureCategoryOptions();
         await refreshList();
-       // await refreshRemindersTable();
+        // await refreshRemindersTable();
 
         // Reiniciar recordatorios (evita duplicados)
         clearAllReminderTimers();
@@ -1806,126 +1808,126 @@
       }
     }
 
-   
+
     async function scheduleReminder() {
-  try {
-    const date = $('remDate').value;
-    const time = $('remTime').value;
-    const msg = $('remMsg').value.trim();
-    const repeat = $('remRepeat').checked;
+      try {
+        const date = $('remDate').value;
+        const time = $('remTime').value;
+        const msg = $('remMsg').value.trim();
+        const repeat = $('remRepeat').checked;
 
-    if (!date || !time || !msg) {
-      alert('Completa fecha, hora y mensaje.');
-      return;
+        if (!date || !time || !msg) {
+          alert('Completa fecha, hora y mensaje.');
+          return;
+        }
+
+        const target = new Date(`${date}T${time}`);
+        if (isNaN(target.getTime())) {
+          alert('Fecha u hora no válidas.');
+          return;
+        }
+        if (target.getTime() <= Date.now()) {
+          alert('La fecha y hora deben ser futuras.');
+          return;
+        }
+
+        // 1️⃣ Guardar en Supabase
+        const id = await addReminder({ message: msg, whenTs: target.getTime(), repeat });
+        if (!id) return;
+
+        // 2️⃣ Esperar confirmación
+        await new Promise(r => setTimeout(r, 200));
+
+        // 3️⃣ Cargar solo el nuevo recordatorio
+        const list = await getMyReminders();
+        const rem = list.find(r => r.id === id);
+
+        if (rem) scheduleReminderInMemory(rem);
+
+        // 4️⃣ Actualizar la tabla (solo una vez)
+        await refreshRemindersTable();
+
+        // 5️⃣ Limpiar formulario y cerrar
+        $('reminderStatus').textContent = `Guardado para ${target.toLocaleString()}${repeat ? ' (cada 10 min)' : ''}.`;
+        setTimeout(() => {
+          showOverlay('reminderFormPopup', false);
+          $('reminderStatus').textContent = '';
+          $('remDate').value = '';
+          $('remTime').value = '';
+          $('remMsg').value = '';
+          $('remRepeat').checked = false;
+          toast('Recordatorio programado');
+        }, 700);
+
+      } catch (err) {
+        console.error("Excepción en scheduleReminder():", err);
+        alert("Ocurrió un problema al guardar el recordatorio. Intenta nuevamente.");
+      }
     }
-
-    const target = new Date(`${date}T${time}`);
-    if (isNaN(target.getTime())) {
-      alert('Fecha u hora no válidas.');
-      return;
-    }
-    if (target.getTime() <= Date.now()) {
-      alert('La fecha y hora deben ser futuras.');
-      return;
-    }
-
-    // 1️⃣ Guardar en Supabase
-    const id = await addReminder({ message: msg, whenTs: target.getTime(), repeat });
-    if (!id) return;
-
-    // 2️⃣ Esperar confirmación
-    await new Promise(r => setTimeout(r, 200));
-
-    // 3️⃣ Cargar solo el nuevo recordatorio
-    const list = await getMyReminders();
-    const rem = list.find(r => r.id === id);
-
-    if (rem) scheduleReminderInMemory(rem);
-
-    // 4️⃣ Actualizar la tabla (solo una vez)
-    await refreshRemindersTable();
-
-    // 5️⃣ Limpiar formulario y cerrar
-    $('reminderStatus').textContent = `Guardado para ${target.toLocaleString()}${repeat ? ' (cada 10 min)' : ''}.`;
-    setTimeout(() => {
-      showOverlay('reminderFormPopup', false);
-      $('reminderStatus').textContent = '';
-      $('remDate').value = '';
-      $('remTime').value = '';
-      $('remMsg').value = '';
-      $('remRepeat').checked = false;
-      toast('Recordatorio programado');
-    }, 700);
-
-  } catch (err) {
-    console.error("Excepción en scheduleReminder():", err);
-    alert("Ocurrió un problema al guardar el recordatorio. Intenta nuevamente.");
-  }
-}
 
 
 
     function showReminderPopup(message, repeating) {
-        $('reminderPopup').style.display = 'none'; // cerrar si estaba abierto
-        $('reminderText').textContent = message;
-        $('reminderPopup').style.display = 'flex';
-        $('btnStopRepeat').style.display = repeating ? 'inline-block' : 'none';
-      }
-      async function stopRepeatForCurrent() {
-        try {
-          if (currentPopupReminderId == null) {
-            const popup = $('reminderPopup');
-            if (popup) popup.style.display = 'none';
-            return;
-          }
-
-          const list = await getMyReminders();
-          if (!Array.isArray(list)) {
-            throw new Error("No se pudo obtener la lista de recordatorios.");
-          }
-
-          const rem = list.find(x => x.id === currentPopupReminderId);
-          if (rem) {
-            rem.active = false;
-
-            // Actualizar en base de datos
-            const ok = await updateReminder(rem);
-            if (ok === false) {
-              console.warn("No se pudo desactivar el recordatorio:", rem.id);
-            }
-
-            // Limpiar timers activos
-            const e = reminderTimers.get(rem.id);
-            if (e) {
-              try {
-                if (e.timeoutId) clearTimeout(e.timeoutId);
-                if (e.intervalId) clearInterval(e.intervalId);
-              } catch (timerErr) {
-                console.error("Error al limpiar timers de recordatorio:", timerErr);
-              }
-            }
-            reminderTimers.delete(rem.id);
-
-            await refreshRemindersTable();
-          } else {
-            console.warn("No se encontró el recordatorio actual en la lista.");
-          }
-
-        } catch (err) {
-          console.error("Excepción en stopRepeatForCurrent():", err);
-          alert("Ocurrió un problema al detener el recordatorio repetido.");
-        } finally {
-          // 🔹 Asegurar cierre del popup y reinicio del estado
-          try {
-            const popup = $('reminderPopup');
-            if (popup) popup.style.display = 'none';
-          } catch (closeErr) {
-            console.warn("Error al cerrar el popup de recordatorio:", closeErr);
-          }
-          currentPopupReminderId = null;
+      $('reminderPopup').style.display = 'none'; // cerrar si estaba abierto
+      $('reminderText').textContent = message;
+      $('reminderPopup').style.display = 'flex';
+      $('btnStopRepeat').style.display = repeating ? 'inline-block' : 'none';
+    }
+    async function stopRepeatForCurrent() {
+      try {
+        if (currentPopupReminderId == null) {
+          const popup = $('reminderPopup');
+          if (popup) popup.style.display = 'none';
+          return;
         }
+
+        const list = await getMyReminders();
+        if (!Array.isArray(list)) {
+          throw new Error("No se pudo obtener la lista de recordatorios.");
+        }
+
+        const rem = list.find(x => x.id === currentPopupReminderId);
+        if (rem) {
+          rem.active = false;
+
+          // Actualizar en base de datos
+          const ok = await updateReminder(rem);
+          if (ok === false) {
+            console.warn("No se pudo desactivar el recordatorio:", rem.id);
+          }
+
+          // Limpiar timers activos
+          const e = reminderTimers.get(rem.id);
+          if (e) {
+            try {
+              if (e.timeoutId) clearTimeout(e.timeoutId);
+              if (e.intervalId) clearInterval(e.intervalId);
+            } catch (timerErr) {
+              console.error("Error al limpiar timers de recordatorio:", timerErr);
+            }
+          }
+          reminderTimers.delete(rem.id);
+
+          await refreshRemindersTable();
+        } else {
+          console.warn("No se encontró el recordatorio actual en la lista.");
+        }
+
+      } catch (err) {
+        console.error("Excepción en stopRepeatForCurrent():", err);
+        alert("Ocurrió un problema al detener el recordatorio repetido.");
+      } finally {
+        // 🔹 Asegurar cierre del popup y reinicio del estado
+        try {
+          const popup = $('reminderPopup');
+          if (popup) popup.style.display = 'none';
+        } catch (closeErr) {
+          console.warn("Error al cerrar el popup de recordatorio:", closeErr);
+        }
+        currentPopupReminderId = null;
       }
-    
+    }
+
 
     async function requestNotificationsViaCheckbox(e) {
       if (!e.target.checked) return;
@@ -2095,10 +2097,10 @@
             .eq('user_id', currentUser.id);
 
           if (!existErr && Array.isArray(existingRemsData)) {
-            const existingKeys = new Set(existingRemsData.map(x => `${x.when_ts}|${(x.message||'').trim().toLowerCase()}`));
+            const existingKeys = new Set(existingRemsData.map(x => `${x.when_ts}|${(x.message || '').trim().toLowerCase()}`));
             // filtrar
             const filtered = remindersToInsert.filter(r => {
-              const key = `${r.when_ts}|${(r.message||'').trim().toLowerCase()}`;
+              const key = `${r.when_ts}|${(r.message || '').trim().toLowerCase()}`;
               return !existingKeys.has(key);
             });
             // reasignar solo si se han filtrado duplicados
@@ -2174,16 +2176,16 @@
 
     //function clearAllReminderTimers() { for (const e of reminderTimers.values()) { try { if (e.timeoutId) clearTimeout(e.timeoutId); if (e.intervalId) clearInterval(e.intervalId); } catch { } } reminderTimers.clear(); }
     function clearAllReminderTimers() {
-        // Limpia correctamente timeoutId e intervalId guardados en el Map
-        for (const [id, entry] of reminderTimers.entries()) {
-          try {
-            if (entry && typeof entry === 'object') {
-              if (entry.timeoutId) clearTimeout(entry.timeoutId);
-              if (entry.intervalId) clearInterval(entry.intervalId);
-            }
-          } catch (e) { /* ignore */ }
-        }
-        reminderTimers.clear();
+      // Limpia correctamente timeoutId e intervalId guardados en el Map
+      for (const [id, entry] of reminderTimers.entries()) {
+        try {
+          if (entry && typeof entry === 'object') {
+            if (entry.timeoutId) clearTimeout(entry.timeoutId);
+            if (entry.intervalId) clearInterval(entry.intervalId);
+          }
+        } catch (e) { /* ignore */ }
+      }
+      reminderTimers.clear();
     }
     /* =========================
        DOMContentLoaded
@@ -2202,9 +2204,9 @@
       $('btnLogout')?.addEventListener('click', logout);
 
       // Recordatorios & varios
-     $('btnOpenRemForm')?.addEventListener('click', () => { 
-  showOverlay('reminderFormPopup', true); 
-});
+      $('btnOpenRemForm')?.addEventListener('click', () => {
+        showOverlay('reminderFormPopup', true);
+      });
 
 
 
@@ -2284,21 +2286,27 @@
 
 
       // Intento de sesión previa en esta pestaña (sessionStorage)
+      // Intento de sesión previa (solo mostrar login si no hay sesión)
       (async () => {
         try {
           const { data: { session }, error } = await sb.auth.getSession();
           if (error) throw error;
+
           if (session?.user) {
+            // ✅ solo guardamos el usuario — no llamamos afterAuth()
             currentUser = session.user;
-            await afterAuth();
-            return;
+            return; // la carga real la hace onAuthStateChange (SIGNED_IN)
           }
-        } catch { }
+        } catch (err) {
+          console.warn("Error verificando sesión previa:", err);
+        }
+
+        // Si no hay sesión, mostrar login
         currentUser = null;
         showLogin();
         $('app').style.display = 'none';
       })();
-    });
+
   </script>
 
 
