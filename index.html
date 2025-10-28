@@ -2229,6 +2229,42 @@
       });
       $('importFile')?.addEventListener('change', async (e) => { const file = e.target.files?.[0]; if (!file) return; const text = await file.text(); await importDBFromText(text); });
 
+      //rECORDATORIOS
+
+      // Alternar entre pestañas del popup de recordatorios
+      $('tabFormBtn')?.addEventListener('click', () => {
+        try {
+          // actualizar clases de pestaña
+          $('tabFormBtn').classList.add('active');
+          $('tabListBtn').classList.remove('active');
+
+          // mostrar el contenido del formulario
+          $('tabForm').classList.add('active');
+          $('tabList').classList.remove('active');
+        } catch (err) {
+          console.error("Error al cambiar a pestaña 'Programar':", err);
+        }
+      });
+
+      $('tabListBtn')?.addEventListener('click', async () => {
+        try {
+          // actualizar clases de pestaña
+          $('tabListBtn').classList.add('active');
+          $('tabFormBtn').classList.remove('active');
+
+          // mostrar la tabla de recordatorios
+          $('tabList').classList.add('active');
+          $('tabForm').classList.remove('active');
+
+          // cargar los recordatorios
+          await refreshRemindersTable();
+        } catch (err) {
+          console.error("Error al cambiar a pestaña 'Mis recordatorios':", err);
+          alert("No se pudieron cargar los recordatorios. Intenta nuevamente.");
+        }
+      });
+
+
       // Intento de sesión previa en esta pestaña (sessionStorage)
       (async () => {
         try {
