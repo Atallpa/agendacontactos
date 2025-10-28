@@ -1808,20 +1808,10 @@
 
     async function scheduleReminder() {
       try {
-        // 1️⃣ Leer y validar entradas
-        const dateEl = $('remDate');
-        const timeEl = $('remTime');
-        const msgEl = $('remMsg');
-        const repeatEl = $('remRepeat');
-
-        if (!dateEl || !timeEl || !msgEl || !repeatEl) {
-          throw new Error("No se encontraron elementos del formulario de recordatorio.");
-        }
-
-        const date = dateEl.value;
-        const time = timeEl.value;
-        const msg = msgEl.value.trim();
-        const repeat = repeatEl.checked;
+        const date = $('remDate').value;
+        const time = $('remTime').value;
+        const msg = $('remMsg').value.trim();
+        const repeat = $('remRepeat').checked;
 
         if (!date || !time || !msg) {
           alert('Completa fecha, hora y mensaje.');
@@ -1838,55 +1828,43 @@
           return;
         }
 
-        // 2️⃣ Insertar en Supabase
-        const id = await addReminder({
-          message: msg,
-          whenTs: target.getTime(),
-          repeat
-        });
+        // 🔹 Insertar en Supabase
+        const id = await addReminder({ message: msg, whenTs: target.getTime(), repeat });
+        if (!id) return;
 
-        if (!id) {
-          console.warn("No se pudo crear el recordatorio en la base de datos.");
-          return;
-        }
+        // 🔹 Esperar medio segundo antes de leer de nuevo
+        await new Promise(r => setTimeout(r, 500));
 
-        // 3️⃣ Recuperar el recordatorio recién insertado
+        // 🔹 Reconsultar lista actualizada desde Supabase
         const list = await getMyReminders();
         const rem = list.find(r => r.id === id);
 
-        // 4️⃣ Programarlo en memoria
-        if (rem) {
-          scheduleReminderInMemory(rem);
-        } else {
-          console.warn("Recordatorio no encontrado tras insertarlo:", id);
-        }
+        // 🔹 Programar en memoria si existe
+        if (rem) scheduleReminderInMemory(rem);
 
-        // 5️⃣ Actualizar interfaz
+        // 🔹 Actualizar interfaz
         $('reminderStatus').textContent =
           `Guardado para ${target.toLocaleString()}${repeat ? ' (cada 10 min)' : ''}.`;
 
-        // Limpiar formulario tras breve pausa visual
         setTimeout(() => {
-          try {
-            showOverlay('reminderFormPopup', false);
-            $('reminderStatus').textContent = '';
-            $('remDate').value = '';
-            $('remTime').value = '';
-            $('remMsg').value = '';
-            $('remRepeat').checked = false;
-            toast('Recordatorio programado');
-          } catch (innerErr) {
-            console.error("Error al limpiar formulario de recordatorio:", innerErr);
-          }
+          showOverlay('reminderFormPopup', false);
+          $('reminderStatus').textContent = '';
+          $('remDate').value = '';
+          $('remTime').value = '';
+          $('remMsg').value = '';
+          $('remRepeat').checked = false;
+          toast('Recordatorio programado');
         }, 700);
 
-        await refreshRemindersTable();
+        // 🔹 Refrescar tabla después de una breve espera adicional
+        setTimeout(refreshRemindersTable, 700);
 
       } catch (err) {
         console.error("Excepción en scheduleReminder():", err);
         alert("Ocurrió un problema al guardar el recordatorio. Intenta nuevamente.");
       }
     }
+
 
     function showReminderPopup(message, repeating) {
       $('reminderPopup').style.display = 'none'; // cerrar si estaba abierto
