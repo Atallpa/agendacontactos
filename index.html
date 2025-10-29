@@ -892,7 +892,7 @@ if (!window.__SB_SINGLETON__) {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      storage: sessionStorage,
+      storage: localStorage,
       storageKey: "guia-tel:ss",
       detectSessionInUrl: false // 👈 Important for stability
     },
@@ -906,6 +906,20 @@ if (!window.__SB_SINGLETON__) {
 window.sb = window.__SB_SINGLETON__;
 const sb = window.sb; // 👈 accesible en todo el archivo
 
+function ensureSupabase() {
+  if (!window.sb) {
+    console.warn("Recreando cliente Supabase perdido...");
+    window.sb = window.__SB_SINGLETON__ = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        storage: localStorage,
+        storageKey: "guia-tel:ss",
+        detectSessionInUrl: false
+      }
+    });
+  }
+}
 
     /* =========================
        Utils UI / Estado
@@ -1209,6 +1223,8 @@ async function afterAuth() {
 
         // Insertar o actualizar según corresponda
         if (currentEditId == null) {
+          ensureSupabase();
+
           const res = await sb.from('contacts').insert(obj);
           error = res.error;
         } else {
@@ -1256,6 +1272,8 @@ async function afterAuth() {
         const fCatVal = $("filterCategory")?.value;
 
         // Construir consulta
+        ensureSupabase();
+
         let q = sb.from('contacts').select('*');
 
         if (fName) q = q.ilike('name', `%${fName}%`);
@@ -1293,6 +1311,8 @@ async function afterAuth() {
 
     async function editContact(id) {
       const user = requireUser();
+      ensureSupabase();
+
       const { data, error } = await sb.from('contacts')
         .select('*')
         .eq('id', Number(id))
@@ -1374,6 +1394,7 @@ async function afterAuth() {
 
 
     async function refreshList() {
+      ensureSupabase();
       try {
         await ensureCategoryOptions();
         const container = document.getElementById("contactsCards");
@@ -2038,6 +2059,7 @@ async function afterAuth() {
 
         // 🔹 Obtener contactos y recordatorios en paralelo
         const [contactsRes, remindersRes] = await Promise.all([
+          ensureSupabase(),
           sb.from('contacts').select('*').eq('user_id', currentUser.id),
           sb.from('reminders').select('*').eq('user_id', currentUser.id)
         ]);
@@ -2274,6 +2296,46 @@ async function afterAuth() {
        DOMContentLoaded
        ========================= */
     window.addEventListener('DOMContentLoaded', () => {
+
+      // 🔁 Re-sincronizar Supabase cuando la pestaña vuelve a ser visible
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState === "visible") {
+    try {
+      // Reasignar cliente si por alguna razón se perdió
+      if (!window.sb) {
+        console.warn("Reinicializando cliente Supabase...");
+        window.__SB_SINGLETON__ = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+          auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+            storage: sessionStorage,
+            storageKey: "guia-tel:ss",
+            detectSessionInUrl: false
+          }
+        });
+        window.sb = window.__SB_SINGLETON__;
+      }
+
+      const { data: { session }, error } = await sb.auth.getSession();
+      if (error) throw error;
+
+      if (session?.user) {
+        currentUser = session.user;
+        // 🔹 Si el usuario sigue logueado, re-inicializa UI
+        await ensureCategoryOptions();
+        await refreshList();
+        await refreshRemindersTable();
+      } else {
+        currentUser = null;
+        showLogin();
+        $('app').style.display = 'none';
+      }
+    } catch (err) {
+      console.error("Error al re-sincronizar Supabase:", err);
+    }
+  }
+});
+
       // Formularios
       $('loginForm')?.addEventListener('submit', (e) => { e.preventDefault(); login(); });
       $('registerForm')?.addEventListener('submit', (e) => { e.preventDefault(); register(); });
