@@ -681,31 +681,6 @@
     </div>
   </div>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   <!-- Inicio de sesión -->
   <fieldset id="loginBox">
     <legend>Inicio de sesión</legend>
@@ -848,6 +823,60 @@
       <div id="contactsCards" aria-live="polite"></div>
     </fieldset>
   </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   <script type="module">
 /* =========================
    Supabase: Singleton Global Seguro
@@ -1205,6 +1234,14 @@ async function afterAuth() {
     }
 
     async function getContactsForList() {
+
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session?.user) {
+        console.warn("Sesión perdida, mostrando login...");
+        showLogin();
+        $('app').style.display = 'none';
+        return [];
+      }
       try {
         // Verificar que Supabase esté listo
         if (!sb) throw new Error("Cliente Supabase no inicializado.");
@@ -1771,7 +1808,7 @@ async function afterAuth() {
           return;
         }
 
-        //console.info(`Cargando ${list.length} recordatorio(s) en memoria...`);
+       // console.info(`Cargando ${list.length} recordatorio(s) en memoria...`);
 
         for (const r of list) {
           try {
@@ -2220,6 +2257,16 @@ async function afterAuth() {
       }
       reminderTimers.clear();
     }
+
+    const debounce = (fn, wait = 250) => {
+        let t;
+        return (...a) => {
+          clearTimeout(t);
+          t = setTimeout(() => fn(...a), wait);
+        };
+      };
+      const debouncedRefresh = debounce(refreshList, 700);
+
     /* =========================
        DOMContentLoaded
        ========================= */
@@ -2252,11 +2299,17 @@ async function afterAuth() {
       $('btnClear')?.addEventListener('click', resetForm);
 
       // Filtros
-      const debounce = (fn, wait = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), wait); }; };
-      $('filterName')?.addEventListener('input', debounce(refreshList, 700));
+      //const debounce = (fn, wait = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), wait); }; };
+      /*$('filterName')?.addEventListener('input', debounce(refreshList, 700));
       $('filterEmail')?.addEventListener('input', debounce(refreshList, 700));
       $('filterPhone')?.addEventListener('input', debounce(refreshList, 700));
+      $('filterCategory')?.addEventListener('change', refreshList);*/
+
+      $('filterName')?.addEventListener('input', debouncedRefresh);
+      $('filterEmail')?.addEventListener('input', debouncedRefresh);
+      $('filterPhone')?.addEventListener('input', debouncedRefresh);
       $('filterCategory')?.addEventListener('change', refreshList);
+
 
       $('btnScheduleRem')?.addEventListener('click', scheduleReminder);
       $('btnCloseReminder')?.addEventListener('click', () => $('reminderPopup').style.display = 'none');
@@ -2350,4 +2403,3 @@ async function afterAuth() {
 </body>
 
 </html>
-
