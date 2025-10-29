@@ -953,7 +953,14 @@ const sb = window.sb; // 👈 accesible en todo el archivo
       const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
         switch (event) {
           case 'SIGNED_IN':
-          case 'TOKEN_REFRESHED':
+  currentUser = session?.user ?? null;
+  await afterAuth();
+  break;
+
+case 'TOKEN_REFRESHED':
+  currentUser = session?.user ?? null;
+  break;
+
           case 'USER_UPDATED':
             currentUser = session?.user ?? null;
             await afterAuth();
