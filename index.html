@@ -875,9 +875,7 @@
 
 
 
-
-
-  <script type="module">
+<script type="module">
 /* =========================
    Supabase: Singleton Global Seguro
    ========================= */
@@ -895,7 +893,11 @@ if (!window.__SB_SINGLETON__) {
       autoRefreshToken: true,
       storage: sessionStorage,
       storageKey: "guia-tel:ss",
+      detectSessionInUrl: false // 👈 Important for stability
     },
+    global: {
+      headers: { 'X-Client-Info': 'guia-telefonica' }
+    }
   });
 }
 
@@ -903,166 +905,192 @@ if (!window.__SB_SINGLETON__) {
 window.sb = window.__SB_SINGLETON__;
 const sb = window.sb; // 👈 accesible en todo el archivo
 
+/* =========================
+   Utils UI / Estado
+   ========================= */
+let currentUser = null;
+let currentEditId = null;
+const DEFAULT_CATEGORIES = ["Siniestros", "Grúas", "Asistencia", "Salud", "Administraciones", "Contactos", "Otros"];
+const reminderTimers = new Map(); 
+let currentPopupReminderId = null;
 
-    /* =========================
-       Utils UI / Estado
-       ========================= */
-    let currentUser = null;
-    let currentEditId = null;
-    const DEFAULT_CATEGORIES = ["Siniestros", "Grúas", "Asistencia", "Salud", "Administraciones", "Contactos", "Otros"];
-    const reminderTimers = new Map(); let currentPopupReminderId = null;
-
-    const $ = (id) => document.getElementById(id);
-    const toast = (msg, ms = 1200) => { const t = $('toast'); if (!t) return; t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), ms); };
-    const showOverlay = (id, show = true) => { const el = $(id); if (el) el.style.display = show ? 'flex' : 'none'; };
-    const setInvalid = (el, hint, inv) => { if (!el) return; el.classList.toggle('invalid', !!inv); if (hint) hint.classList.toggle('show', !!inv); };
-    const isValidEmail = (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
-    const isValidPhone = (v) => !v || /^[0-9+\s\-()]{6,20}$/.test(v.trim());
-    const normalize = (s) => (s || "").toString().toLowerCase();
-
-    function requireUser() { if (!currentUser) throw new Error("No hay usuario autenticado"); return currentUser; }
-    function showLogin() { $('loginBox').style.display = "block"; $('registerBox').style.display = "none"; }
-    function showRegister() { $('loginBox').style.display = "none"; $('registerBox').style.display = "block"; $('regUsername')?.classList.remove("invalid"); $('userHintReg')?.classList.remove("show"); }
-
-    /* =========================
-       Auth
-       ========================= */
-    const normUser = (u) => (u || "").trim().toLowerCase();
-
-    async function register() {
-      try {
-        const emailEl = $("regUsername");
-        const passEl = $("regPassword");
-
-        if (!emailEl || !passEl) {
-          throw new Error("No se encontraron los campos del formulario de registro.");
-        }
-
-        const email = normUser(emailEl.value);
-        const password = passEl.value;
-
-        if (!email || !password) {
-          alert("Completa usuario (email) y contraseña.");
-          return;
-        }
-
-        const { error } = await sb.auth.signUp({ email, password });
-
-        if (error) {
-          console.error("Error al registrar usuario:", error);
-          alert("Error al registrar: " + error.message);
-          return;
-        }
-
-        showOverlay('registerPopup', true);
-        showLogin();
-        toast("Registro exitoso. Verifica tu correo para confirmar la cuenta.");
-
-      } catch (err) {
-        console.error("Excepción en register():", err);
-        alert("Ocurrió un problema durante el registro. Intenta nuevamente más tarde.");
-      }
-    }
-
-
-    // (Opcional) Si tienes una RPC user_exists(email_input text); si no existe no pasa nada
-    async function checkUserExists(email) {
-      try {
-        const { data, error } = await sb.rpc('user_exists', { email_input: email });
-        if (error) return null;
-        return !!data;
-      } catch { return null; }
-    }
-
-    // Suscripción al estado de auth (recreable)
-    let authSubscription = null;
-    function bindAuthListener() {
-      try { authSubscription?.unsubscribe(); } catch { }
-      const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
-        switch (event) {
-          case 'SIGNED_IN':
-  currentUser = session?.user ?? null;
-  await afterAuth();
-  break;
-
-case 'TOKEN_REFRESHED':
-  currentUser = session?.user ?? null;
-  break;
-
-          case 'USER_UPDATED':
-            currentUser = session?.user ?? null;
-            await afterAuth();
-            break;
-          case 'PASSWORD_RECOVERY': {
-            const newPassword = prompt("Introduce tu nueva contraseña:");
-            if (!newPassword) return;
-            const { error } = await sb.auth.updateUser({ password: newPassword });
-            if (error) { alert("No se pudo actualizar la contraseña: " + error.message); return; }
-            alert("Contraseña actualizada. Ya puedes iniciar sesión.");
-            break;
-          }
-          case 'SIGNED_OUT':
-            currentUser = null;
-            clearAllReminderTimers(); // <- aquí
-            showLogin();
-            $('app').style.display = 'none';
-            break;
-
-        }
-        authSubscription = subscription;
-      });
-    }
-    bindAuthListener();
-
-    async function login() {
-      const email = normUser(document.getElementById("username").value);
-      const password = document.getElementById("password").value;
-
-      if (!email || !password) { alert("Completa usuario y contraseña."); return; }
-
-      // (opcional) comprobar existencia vía RPC sin bloquear
-      try {
-        const exists = await checkUserExists(email);
-        if (exists === false) { alert("El usuario no existe. Por favor, regístrate."); return; }
-      } catch { }
-
-      const { data, error } = await sb.auth.signInWithPassword({ email, password });
-      if (error) {
-        alert(error.message?.toLowerCase().includes("invalid")
-          ? "El usuario no existe o la contraseña es incorrecta."
-          : ("No se pudo iniciar sesión: " + error.message));
-        return;
-      }
-      await afterAuth();
-    }
-
-    async function sendResetLink() {
-      try {
-        const email = normUser($("username").value);
-        if (!email) {
-          alert("Escribe tu email en 'Usuario' y vuelve a pulsar '¿Olvidaste tu contraseña?'");
-          return;
-        }
-
-        const redirectTo = `${window.location.origin}/#/recuperar`;
-
-        const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
-
-        if (error) {
-          console.error("Error al enviar enlace de restablecimiento:", error);
-          alert("No se pudo enviar el correo: " + error.message);
-          return;
-        }
-
-        alert("Te hemos enviado un email con el enlace para restablecer tu contraseña.");
-      } catch (err) {
-        console.error("Excepción en sendResetLink():", err);
-        alert("Ocurrió un error al intentar enviar el correo. Revisa tu conexión e inténtalo de nuevo.");
-      }
-    }
-
+// 🔹 Control de inicialización y estado
 let __authRunning = false;
-let isLoggingOut = false; // nuevo flag de seguridad
+let isLoggingOut = false;
+let __appInitialized = false;
+let authSubscription = null;
+
+// 🔹 Gestión de event listeners
+const eventListeners = [];
+
+const $ = (id) => document.getElementById(id);
+const toast = (msg, ms = 1200) => { const t = $('toast'); if (!t) return; t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), ms); };
+const showOverlay = (id, show = true) => { const el = $(id); if (el) el.style.display = show ? 'flex' : 'none'; };
+const setInvalid = (el, hint, inv) => { if (!el) return; el.classList.toggle('invalid', !!inv); if (hint) hint.classList.toggle('show', !!inv); };
+const isValidEmail = (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
+const isValidPhone = (v) => !v || /^[0-9+\s\-()]{6,20}$/.test(v.trim());
+const normalize = (s) => (s || "").toString().toLowerCase();
+
+// 🔹 Gestión de event listeners para prevenir memory leaks
+function addManagedListener(element, event, handler) {
+  if (!element) return;
+  element.addEventListener(event, handler);
+  eventListeners.push({ element, event, handler });
+}
+
+function cleanupAllListeners() {
+  eventListeners.forEach(({ element, event, handler }) => {
+    element.removeEventListener(event, handler);
+  });
+  eventListeners.length = 0;
+}
+
+function requireUser() { if (!currentUser) throw new Error("No hay usuario autenticado"); return currentUser; }
+function showLogin() { $('loginBox').style.display = "block"; $('registerBox').style.display = "none"; }
+function showRegister() { $('loginBox').style.display = "none"; $('registerBox').style.display = "block"; $('regUsername')?.classList.remove("invalid"); $('userHintReg')?.classList.remove("show"); }
+
+/* =========================
+   Auth
+   ========================= */
+const normUser = (u) => (u || "").trim().toLowerCase();
+
+async function register() {
+  try {
+    const emailEl = $("regUsername");
+    const passEl = $("regPassword");
+
+    if (!emailEl || !passEl) {
+      throw new Error("No se encontraron los campos del formulario de registro.");
+    }
+
+    const email = normUser(emailEl.value);
+    const password = passEl.value;
+
+    if (!email || !password) {
+      alert("Completa usuario (email) y contraseña.");
+      return;
+    }
+
+    const { error } = await sb.auth.signUp({ email, password });
+
+    if (error) {
+      console.error("Error al registrar usuario:", error);
+      alert("Error al registrar: " + error.message);
+      return;
+    }
+
+    showOverlay('registerPopup', true);
+    showLogin();
+    toast("Registro exitoso. Verifica tu correo para confirmar la cuenta.");
+
+  } catch (err) {
+    console.error("Excepción en register():", err);
+    alert("Ocurrió un problema durante el registro. Intenta nuevamente más tarde.");
+  }
+}
+
+// (Opcional) Si tienes una RPC user_exists(email_input text); si no existe no pasa nada
+async function checkUserExists(email) {
+  try {
+    const { data, error } = await sb.rpc('user_exists', { email_input: email });
+    if (error) return null;
+    return !!data;
+  } catch { return null; }
+}
+
+// Suscripción al estado de auth (FIXED - sin memory leaks)
+function bindAuthListener() {
+  // 🔹 Limpiar suscripción anterior
+  if (authSubscription) {
+    authSubscription.unsubscribe();
+    authSubscription = null;
+  }
+  
+  const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
+    switch (event) {
+      case 'SIGNED_IN':
+        currentUser = session?.user ?? null;
+        await afterAuth();
+        break;
+
+      case 'TOKEN_REFRESHED':
+        currentUser = session?.user ?? null;
+        break;
+
+      case 'USER_UPDATED':
+        currentUser = session?.user ?? null;
+        await afterAuth();
+        break;
+        
+      case 'PASSWORD_RECOVERY': {
+        const newPassword = prompt("Introduce tu nueva contraseña:");
+        if (!newPassword) return;
+        const { error } = await sb.auth.updateUser({ password: newPassword });
+        if (error) { alert("No se pudo actualizar la contraseña: " + error.message); return; }
+        alert("Contraseña actualizada. Ya puedes iniciar sesión.");
+        break;
+      }
+      
+      case 'SIGNED_OUT':
+        currentUser = null;
+        clearAllReminderTimers();
+        showLogin();
+        $('app').style.display = 'none';
+        break;
+    }
+  });
+  
+  authSubscription = subscription;
+}
+
+bindAuthListener();
+
+async function login() {
+  const email = normUser(document.getElementById("username").value);
+  const password = document.getElementById("password").value;
+
+  if (!email || !password) { alert("Completa usuario y contraseña."); return; }
+
+  // (opcional) comprobar existencia vía RPC sin bloquear
+  try {
+    const exists = await checkUserExists(email);
+    if (exists === false) { alert("El usuario no existe. Por favor, regístrate."); return; }
+  } catch { }
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) {
+    alert(error.message?.toLowerCase().includes("invalid")
+      ? "El usuario no existe o la contraseña es incorrecta."
+      : ("No se pudo iniciar sesión: " + error.message));
+    return;
+  }
+  await afterAuth();
+}
+
+async function sendResetLink() {
+  try {
+    const email = normUser($("username").value);
+    if (!email) {
+      alert("Escribe tu email en 'Usuario' y vuelve a pulsar '¿Olvidaste tu contraseña?'");
+      return;
+    }
+
+    const redirectTo = `${window.location.origin}/#/recuperar`;
+
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo });
+
+    if (error) {
+      console.error("Error al enviar enlace de restablecimiento:", error);
+      alert("No se pudo enviar el correo: " + error.message);
+      return;
+    }
+
+    alert("Te hemos enviado un email con el enlace para restablecer tu contraseña.");
+  } catch (err) {
+    console.error("Excepción en sendResetLink():", err);
+    alert("Ocurrió un error al intentar enviar el correo. Revisa tu conexión e inténtalo de nuevo.");
+  }
+}
 
 async function logout() {
   // Evita que se dispare dos veces por error
@@ -1091,10 +1119,9 @@ async function logout() {
   } finally {
     // 🔹 Este bloque SIEMPRE se ejecuta (éxito o error)
     isLoggingOut = false;
-    __authRunning = false; // asegúrate de que no quede trabado
+    __authRunning = false;
   }
 }
-
 
 async function afterAuth() {
   // Evita que se ejecute dos veces en paralelo
@@ -1145,1258 +1172,1228 @@ async function afterAuth() {
     } catch { }
 
   } finally {
-    // 👇 Esto garantiza que nunca quede “bloqueado” para próximos logins
     __authRunning = false;
   }
 }
 
+/* =========================
+   Contactos
+   ========================= */
+function resetForm() {
+  currentEditId = null;
+  ['contactName', 'contactPhone', 'contactEmail', 'contactCodigo'].forEach(id => $(id).value = '');
+  $('contactCategory').selectedIndex = 0;
+  ['contactName', 'contactEmail', 'contactPhone', 'contactCategory'].forEach(id => setInvalid($(id), null, false));
+  ['nameHint', 'emailHint', 'phoneHint', 'catHint'].forEach(id => $(id).classList.remove('show'));
+  $("formLegend").textContent = "Agregar contacto"; $("editHint").style.display = "none"; $("btnSave").textContent = "Guardar";
+}
 
+async function ensureCategoryOptions() {
+  const formSel = $("contactCategory"), filterSel = $("filterCategory");
+  const prevForm = formSel.value, prevFilter = filterSel.value;
+  formSel.innerHTML = "";
+  for (const cat of ["", ...DEFAULT_CATEGORIES]) { const o = document.createElement("option"); o.value = cat; o.textContent = cat ? cat : "— Selecciona —"; formSel.appendChild(o); }
+  filterSel.innerHTML = ""; const a = document.createElement("option"); a.value = "all"; a.textContent = "Todas"; filterSel.appendChild(a);
+  for (const cat of DEFAULT_CATEGORIES) { const o = document.createElement("option"); o.value = cat; o.textContent = cat; filterSel.appendChild(o); }
+  if ([...formSel.options].some(o => o.value === prevForm)) formSel.value = prevForm;
+  if ([...filterSel.options].some(o => o.value === prevFilter)) filterSel.value = prevFilter;
+}
 
-    window.addEventListener('beforeunload', () => { try { authSubscription?.unsubscribe(); } catch { } });
+function validateContactForm() {
+  const n = $("contactName"), e = $("contactEmail"), t = $("contactPhone"), c = $("contactCategory"); let ok = true;
+  if (!n.value.trim()) { setInvalid(n, $("nameHint"), true); ok = false; } else setInvalid(n, $("nameHint"), false);
+  if (!isValidEmail(e.value)) { setInvalid(e, $("emailHint"), true); ok = false; } else setInvalid(e, $("emailHint"), false);
+  if (!isValidPhone(t.value)) { setInvalid(t, $("phoneHint"), true); ok = false; } else setInvalid(t, $("phoneHint"), false);
+  if (!c.value) { setInvalid(c, $("catHint"), true); ok = false; } else setInvalid(c, $("catHint"), false);
+  return ok;
+}
 
-    /* =========================
-       Contactos
-       ========================= */
-    function resetForm() {
-      currentEditId = null;
-      ['contactName', 'contactPhone', 'contactEmail', 'contactCodigo'].forEach(id => $(id).value = '');
-      $('contactCategory').selectedIndex = 0;
-      ['contactName', 'contactEmail', 'contactPhone', 'contactCategory'].forEach(id => setInvalid($(id), null, false));
-      ['nameHint', 'emailHint', 'phoneHint', 'catHint'].forEach(id => $(id).classList.remove('show'));
-      $("formLegend").textContent = "Agregar contacto"; $("editHint").style.display = "none"; $("btnSave").textContent = "Guardar";
+async function saveContact() {
+  try {
+    // Validar el formulario antes de continuar
+    if (!validateContactForm()) return;
+
+    const user = requireUser();
+
+    const obj = {
+      user_id: user.id,
+      name: $("contactName").value.trim(),
+      phone: $("contactPhone").value.trim(),
+      email: $("contactEmail").value.trim(),
+      category: $("contactCategory").value.trim(),
+      codigo: $("contactCodigo").value.trim()
+    };
+
+    let error = null;
+
+    // Insertar o actualizar según corresponda
+    if (currentEditId == null) {
+      const res = await sb.from('contacts').insert(obj);
+      error = res.error;
+    } else {
+      const res = await sb
+        .from('contacts')
+        .update(obj)
+        .eq('id', Number(currentEditId))
+        .eq('user_id', user.id);
+      error = res.error;
     }
 
-    async function ensureCategoryOptions() {
-      const formSel = $("contactCategory"), filterSel = $("filterCategory");
-      const prevForm = formSel.value, prevFilter = filterSel.value;
-      formSel.innerHTML = "";
-      for (const cat of ["", ...DEFAULT_CATEGORIES]) { const o = document.createElement("option"); o.value = cat; o.textContent = cat ? cat : "— Selecciona —"; formSel.appendChild(o); }
-      filterSel.innerHTML = ""; const a = document.createElement("option"); a.value = "all"; a.textContent = "Todas"; filterSel.appendChild(a);
-      for (const cat of DEFAULT_CATEGORIES) { const o = document.createElement("option"); o.value = cat; o.textContent = cat; filterSel.appendChild(o); }
-      if ([...formSel.options].some(o => o.value === prevForm)) formSel.value = prevForm;
-      if ([...filterSel.options].some(o => o.value === prevFilter)) filterSel.value = prevFilter;
+    if (error) {
+      console.error("Error guardando contacto:", error);
+      alert("No se pudo guardar el contacto: " + error.message);
+      return;
     }
 
-    function validateContactForm() {
-      const n = $("contactName"), e = $("contactEmail"), t = $("contactPhone"), c = $("contactCategory"); let ok = true;
-      if (!n.value.trim()) { setInvalid(n, $("nameHint"), true); ok = false; } else setInvalid(n, $("nameHint"), false);
-      if (!isValidEmail(e.value)) { setInvalid(e, $("emailHint"), true); ok = false; } else setInvalid(e, $("emailHint"), false);
-      if (!isValidPhone(t.value)) { setInvalid(t, $("phoneHint"), true); ok = false; } else setInvalid(t, $("phoneHint"), false);
-      if (!c.value) { setInvalid(c, $("catHint"), true); ok = false; } else setInvalid(c, $("catHint"), false);
-      return ok;
+    // Si todo sale bien
+    resetForm();
+    await refreshList();
+    toast("Contacto guardado correctamente.");
+  } catch (err) {
+    console.error("Excepción en saveContact():", err);
+    alert("Ocurrió un problema al guardar el contacto. Revisa tu conexión e inténtalo de nuevo.");
+  }
+}
+
+async function getContactsForList() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session?.user) {
+    console.warn("Sesión perdida, mostrando login...");
+    showLogin();
+    $('app').style.display = 'none';
+    return [];
+  }
+  try {
+    // Verificar que Supabase esté listo
+    if (!sb) throw new Error("Cliente Supabase no inicializado.");
+
+    // Obtener valores de filtros (defensivo en caso de elementos nulos)
+    const fName = normalize($("filterName")?.value);
+    const fEmail = normalize($("filterEmail")?.value);
+    const fPhone = normalize($("filterPhone")?.value);
+    const fCatVal = $("filterCategory")?.value;
+
+    // Construir consulta
+    let q = sb.from('contacts').select('*');
+
+    if (fName) q = q.ilike('name', `%${fName}%`);
+    if (fEmail) q = q.ilike('email', `%${fEmail}%`);
+    if (fPhone) q = q.ilike('phone', `%${fPhone}%`);
+    if (fCatVal && fCatVal !== 'all') q = q.eq('category', fCatVal);
+
+    // Ejecutar consulta
+    const { data, error } = await q.order('name', { ascending: true });
+
+    if (error) {
+      console.error("Error listando contactos:", error);
+      alert("Error listando contactos: " + error.message);
+      return [];
     }
 
-    async function saveContact() {
-      try {
-        // Validar el formulario antes de continuar
-        if (!validateContactForm()) return;
+    // Validar datos y devolver resultado limpio
+    if (!Array.isArray(data)) {
+      console.warn("Respuesta inesperada en getContactsForList:", data);
+      return [];
+    }
 
-        const user = requireUser();
+    return data.map(c => ({
+      ...c,
+      readonly: c.is_global === true
+    }));
 
-        const obj = {
-          user_id: user.id,
-          name: $("contactName").value.trim(),
-          phone: $("contactPhone").value.trim(),
-          email: $("contactEmail").value.trim(),
-          category: $("contactCategory").value.trim(),
-          codigo: $("contactCodigo").value.trim()
-        };
+  } catch (err) {
+    console.error("Excepción en getContactsForList():", err);
+    alert("No se pudieron obtener los contactos. Revisa tu conexión e inténtalo nuevamente.");
+    return [];
+  }
+}
 
-        let error = null;
+async function editContact(id) {
+  const user = requireUser();
+  const { data, error } = await sb.from('contacts')
+    .select('*')
+    .eq('id', Number(id))
+    .eq('user_id', user.id)
+    .single();
 
-        // Insertar o actualizar según corresponda
-        if (currentEditId == null) {
-          const res = await sb.from('contacts').insert(obj);
-          error = res.error;
-        } else {
-          const res = await sb
-            .from('contacts')
-            .update(obj)
-            .eq('id', Number(currentEditId))
-            .eq('user_id', user.id);
-          error = res.error;
-        }
+  if (error) { alert("No se pudo cargar: " + error.message); return; }
 
-        if (error) {
-          console.error("Error guardando contacto:", error);
-          alert("No se pudo guardar el contacto: " + error.message);
-          return;
-        }
+  const c = data;
+  currentEditId = c.id;
 
-        // Si todo sale bien
-        resetForm();
-        await refreshList();
-        toast("Contacto guardado correctamente.");
-      } catch (err) {
-        console.error("Excepción en saveContact():", err);
-        alert("Ocurrió un problema al guardar el contacto. Revisa tu conexión e inténtalo de nuevo.");
+  $("contactName").value = c.name || "";
+  $("contactPhone").value = c.phone || "";
+  $("contactEmail").value = c.email || "";
+  $("contactCodigo").value = c.codigo || "";
+  $("contactCategory").value = (c.category || "");
+
+  $("formLegend").textContent = "Modificar contacto";
+  $("editHint").style.display = "inline";
+  $("btnSave").textContent = "Guardar cambios";
+
+  // 👇 Scroll arriba + foco en el nombre
+  try {
+    // Desplaza suavemente al inicio
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    const nameInput = $("contactName");
+    if (nameInput) {
+      // Foco inmediato (por si el navegador bloquea durante la animación)
+      nameInput.focus();
+      nameInput.select?.();
+
+      // Refuerzo del foco tras la animación de scroll
+      setTimeout(() => {
+        nameInput.focus();
+        nameInput.select?.();
+      }, 350);
+
+      // (Opcional) pequeño "flash" de realce
+      nameInput.classList.add("focus-flash");
+      setTimeout(() => nameInput.classList.remove("focus-flash"), 600);
+    }
+  } catch { }
+}
+
+async function deleteContact(id) {
+  try {
+    const user = requireUser();
+
+    if (!confirm("¿Borrar el contacto seleccionado?")) return;
+
+    const { error } = await sb
+      .from('contacts')
+      .delete()
+      .eq('id', Number(id))
+      .eq('user_id', user.id);
+
+    if (error) {
+      console.error("Error al borrar contacto:", error);
+      alert("No se pudo borrar el contacto: " + error.message);
+      return;
+    }
+
+    // Si el contacto borrado estaba en edición, limpiar el formulario
+    if (currentEditId === Number(id)) {
+      resetForm();
+    }
+
+    await refreshList();
+    toast("Contacto eliminado correctamente.");
+
+  } catch (err) {
+    console.error("Excepción en deleteContact():", err);
+    alert("Ocurrió un problema al intentar borrar el contacto. Revisa tu conexión e inténtalo de nuevo.");
+  }
+}
+
+async function refreshList() {
+  try {
+    await ensureCategoryOptions();
+    const container = document.getElementById("contactsCards");
+    if (!container) throw new Error("No se encontró el contenedor de contactos.");
+
+    container.innerHTML = "";
+
+    const rows = await getContactsForList();
+    if (!Array.isArray(rows)) throw new Error("Los datos de contactos no son válidos.");
+
+    if (rows.length === 0) {
+      const p = document.createElement("p");
+      p.className = "muted";
+      p.textContent = "No hay contactos que coincidan.";
+      container.appendChild(p);
+      return;
+    }
+
+    for (const c of rows) {
+      const card = document.createElement("article");
+      card.className = "contact-card";
+      card.dataset.readonly = String(!!c.is_global);
+
+      const main = document.createElement("div");
+      main.className = "contact-main";
+
+      const title = document.createElement("div");
+      title.className = "contact-title";
+      title.textContent = c.name || "—";
+      title.title = c.name || "";
+      main.appendChild(title);
+
+      const phoneLine = document.createElement("div");
+      phoneLine.className = "contact-line";
+      if (c.phone) {
+        const a = document.createElement("a");
+        a.href = "tel:" + (c.phone || "").replace(/[^0-9+]/g, "");
+        a.textContent = c.phone;
+        a.title = c.phone;
+        phoneLine.appendChild(a);
+      } else {
+        phoneLine.textContent = "Teléfono";
+        phoneLine.classList.add("muted");
       }
-    }
+      main.appendChild(phoneLine);
 
-    async function getContactsForList() {
-
-      const { data: { session } } = await sb.auth.getSession();
-      if (!session?.user) {
-        console.warn("Sesión perdida, mostrando login...");
-        showLogin();
-        $('app').style.display = 'none';
-        return [];
+      const emailLine = document.createElement("div");
+      emailLine.className = "contact-line";
+      if (c.email) {
+        const a = document.createElement("a");
+        a.href = `mailto:${c.email}`;
+        a.textContent = c.email;
+        a.title = c.email;
+        emailLine.appendChild(a);
+      } else {
+        emailLine.textContent = "Email";
+        emailLine.classList.add("muted");
       }
-      try {
-        // Verificar que Supabase esté listo
-        if (!sb) throw new Error("Cliente Supabase no inicializado.");
+      main.appendChild(emailLine);
 
-        // Obtener valores de filtros (defensivo en caso de elementos nulos)
-        const fName = normalize($("filterName")?.value);
-        const fEmail = normalize($("filterEmail")?.value);
-        const fPhone = normalize($("filterPhone")?.value);
-        const fCatVal = $("filterCategory")?.value;
+      const meta = document.createElement("div");
+      meta.className = "contact-meta";
+      const cat = document.createElement("small");
+      cat.textContent = c.category || "";
+      meta.appendChild(cat);
 
-        // Construir consulta
-        let q = sb.from('contacts').select('*');
-
-        if (fName) q = q.ilike('name', `%${fName}%`);
-        if (fEmail) q = q.ilike('email', `%${fEmail}%`);
-        if (fPhone) q = q.ilike('phone', `%${fPhone}%`);
-        if (fCatVal && fCatVal !== 'all') q = q.eq('category', fCatVal);
-
-        // Ejecutar consulta
-        const { data, error } = await q.order('name', { ascending: true });
-
-        if (error) {
-          console.error("Error listando contactos:", error);
-          alert("Error listando contactos: " + error.message);
-          return [];
-        }
-
-        // Validar datos y devolver resultado limpio
-        if (!Array.isArray(data)) {
-          console.warn("Respuesta inesperada en getContactsForList:", data);
-          return [];
-        }
-
-        return data.map(c => ({
-          ...c,
-          readonly: c.is_global === true
-        }));
-
-      } catch (err) {
-        console.error("Excepción en getContactsForList():", err);
-        alert("No se pudieron obtener los contactos. Revisa tu conexión e inténtalo nuevamente.");
-        return [];
+      const codigo = (c.codigo || "").trim();
+      if (codigo) {
+        const cod = document.createElement("small");
+        cod.textContent = `Código de mediador: ${codigo}`;
+        meta.appendChild(cod);
       }
+      main.appendChild(meta);
+
+      const actions = document.createElement("div");
+      actions.className = "contact-actions";
+
+      const btnEdit = document.createElement("button");
+      btnEdit.id = `btn-edit-${c.id}`;
+      btnEdit.className = "icon-btn";
+      btnEdit.innerHTML = '<span aria-hidden="true">✏️</span>';
+      btnEdit.title = "Modificar";
+      btnEdit.disabled = c.readonly;
+      btnEdit.onclick = () => editContact(c.id);
+
+      const btnDelete = document.createElement("button");
+      btnDelete.id = `btn-delete-${c.id}`;
+      btnDelete.className = "icon-btn";
+      btnDelete.innerHTML = '<span aria-hidden="true">🗑️</span>';
+      btnDelete.title = "Borrar";
+      btnDelete.disabled = c.readonly;
+      btnDelete.onclick = () => deleteContact(c.id);
+
+      actions.appendChild(btnEdit);
+      actions.appendChild(btnDelete);
+
+      card.appendChild(main);
+      card.appendChild(actions);
+      container.appendChild(card);
+    }
+  } catch (err) {
+    console.error("Error en refreshList():", err);
+    alert("No se pudieron cargar los contactos. Revisa tu conexión o vuelve a intentar.");
+  }
+}
+
+/* =========================
+   Recordatorios
+   ========================= */
+async function sbUser() {
+  const { data: { user }, error } = await sb.auth.getUser();
+  if (error) throw error;
+  if (!user) throw new Error("No hay usuario autenticado.");
+  return user;
+}
+
+async function addReminder({ message, whenTs, repeat }) {
+  try {
+    const user = await sbUser();
+
+    const whenIso = new Date(whenTs).toISOString();
+    if (isNaN(new Date(whenTs).getTime())) {
+      throw new Error("Fecha/hora de recordatorio no válida.");
     }
 
+    const { data, error } = await sb
+      .from("reminders")
+      .insert({
+        user_id: user.id,
+        message,
+        when_ts: whenIso,
+        repeat: !!repeat,
+        active: true
+      })
+      .select("id")
+      .single();
 
-    async function editContact(id) {
-      const user = requireUser();
-      const { data, error } = await sb.from('contacts')
-        .select('*')
-        .eq('id', Number(id))
-        .eq('user_id', user.id)
-        .single();
-
-      if (error) { alert("No se pudo cargar: " + error.message); return; }
-
-      const c = data;
-      currentEditId = c.id;
-
-      $("contactName").value = c.name || "";
-      $("contactPhone").value = c.phone || "";
-      $("contactEmail").value = c.email || "";
-      $("contactCodigo").value = c.codigo || "";
-      $("contactCategory").value = (c.category || "");
-
-      $("formLegend").textContent = "Modificar contacto";
-      $("editHint").style.display = "inline";
-      $("btnSave").textContent = "Guardar cambios";
-
-      // 👇 Scroll arriba + foco en el nombre
-      try {
-        // Desplaza suavemente al inicio
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-
-        const nameInput = $("contactName");
-        if (nameInput) {
-          // Foco inmediato (por si el navegador bloquea durante la animación)
-          nameInput.focus();
-          nameInput.select?.();
-
-          // Refuerzo del foco tras la animación de scroll
-          setTimeout(() => {
-            nameInput.focus();
-            nameInput.select?.();
-          }, 350);
-
-          // (Opcional) pequeño “flash” de realce
-          nameInput.classList.add("focus-flash");
-          setTimeout(() => nameInput.classList.remove("focus-flash"), 600);
-        }
-      } catch { }
-      //alert("Contacto guardado correctamente.");
+    if (error) {
+      console.error("Error insertando recordatorio:", error);
+      alert("No se pudo guardar el recordatorio: " + error.message);
+      return null;
     }
 
+    return data?.id || null;
 
-    async function deleteContact(id) {
-      try {
-        const user = requireUser();
+  } catch (err) {
+    console.error("Excepción en addReminder():", err);
+    alert("Ocurrió un problema al guardar el recordatorio. Revisa tu conexión e inténtalo de nuevo.");
+    return null;
+  }
+}
 
-        if (!confirm("¿Borrar el contacto seleccionado?")) return;
-
-        const { error } = await sb
-          .from('contacts')
-          .delete()
-          .eq('id', Number(id))
-          .eq('user_id', user.id);
-
-        if (error) {
-          console.error("Error al borrar contacto:", error);
-          alert("No se pudo borrar el contacto: " + error.message);
-          return;
-        }
-
-        // Si el contacto borrado estaba en edición, limpiar el formulario
-        if (currentEditId === Number(id)) {
-          resetForm();
-        }
-
-        await refreshList();
-        toast("Contacto eliminado correctamente.");
-
-      } catch (err) {
-        console.error("Excepción en deleteContact():", err);
-        alert("Ocurrió un problema al intentar borrar el contacto. Revisa tu conexión e inténtalo de nuevo.");
-      }
+async function getMyReminders() {
+  try {
+    const user = await sbUser();
+    if (!user?.id) {
+      console.warn("No hay usuario autenticado al intentar obtener recordatorios.");
+      return [];
     }
 
+    const { data, error } = await sb
+      .from("reminders")
+      .select("id, message, when_ts, repeat, active")
+      .eq("user_id", user.id)
+      .order("when_ts", { ascending: true });
 
-    async function refreshList() {
-      try {
-        await ensureCategoryOptions();
-        const container = document.getElementById("contactsCards");
-        if (!container) throw new Error("No se encontró el contenedor de contactos.");
+    if (error) {
+      console.error("Error al cargar recordatorios:", error);
+      alert("Error cargando recordatorios: " + error.message);
+      return [];
+    }
 
-        container.innerHTML = "";
+    // Validar que data sea un array antes de mapear
+    if (!Array.isArray(data)) {
+      console.warn("Respuesta inesperada de Supabase en getMyReminders:", data);
+      return [];
+    }
 
-        const rows = await getContactsForList();
-        if (!Array.isArray(rows)) throw new Error("Los datos de contactos no son válidos.");
+    return data.map(r => ({
+      id: r.id,
+      message: r.message,
+      repeat: r.repeat,
+      active: r.active,
+      whenTs: new Date(r.when_ts).getTime()
+    }));
 
-        if (rows.length === 0) {
-          const p = document.createElement("p");
-          p.className = "muted";
-          p.textContent = "No hay contactos que coincidan.";
-          container.appendChild(p);
-          return;
+  } catch (err) {
+    console.error("Excepción en getMyReminders():", err);
+    alert("Ocurrió un problema al obtener los recordatorios. Intenta de nuevo.");
+    return [];
+  }
+}
+
+async function updateReminder(rem) {
+  try {
+    const user = await sbUser();
+
+    if (!rem || !rem.id) {
+      throw new Error("Datos de recordatorio inválidos.");
+    }
+
+    // Validar fecha
+    const date = new Date(rem.whenTs);
+    if (isNaN(date.getTime())) {
+      throw new Error("Fecha/hora del recordatorio no válida.");
+    }
+
+    const payload = {
+      message: rem.message,
+      when_ts: date.toISOString(),
+      repeat: !!rem.repeat,
+      active: !!rem.active
+    };
+
+    const { error } = await sb
+      .from("reminders")
+      .update(payload)
+      .eq("id", rem.id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error al actualizar recordatorio:", error);
+      alert("No se pudo actualizar el recordatorio: " + error.message);
+      return false;
+    }
+
+    return true;
+
+  } catch (err) {
+    console.error("Excepción en updateReminder():", err);
+    alert("Ocurrió un problema al actualizar el recordatorio. Inténtalo de nuevo.");
+    return false;
+  }
+}
+
+async function deleteReminder(id) {
+  try {
+    if (!id || isNaN(Number(id))) {
+      throw new Error("ID de recordatorio inválido.");
+    }
+
+    const user = await sbUser();
+
+    const { error } = await sb
+      .from("reminders")
+      .delete()
+      .eq("id", Number(id))
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error al borrar recordatorio:", error);
+      alert("No se pudo borrar el recordatorio: " + error.message);
+      return false;
+    }
+
+    toast("Recordatorio eliminado");
+    return true;
+
+  } catch (err) {
+    console.error("Excepción en deleteReminder():", err);
+    alert("Ocurrió un problema al eliminar el recordatorio. Intenta de nuevo.");
+    return false;
+  }
+}
+
+async function refreshRemindersTable() {
+  try {
+    const tbody = $("remindersTbody");
+    if (!tbody) throw new Error("No se encontró el contenedor de recordatorios.");
+
+    tbody.innerHTML = "";
+
+    const list = await getMyReminders();
+    if (!Array.isArray(list)) throw new Error("Datos de recordatorios inválidos.");
+
+    // Ordenar por fecha
+    list.sort((a, b) => a.whenTs - b.whenTs);
+
+    if (list.length === 0) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 5;
+      td.className = "muted";
+      td.textContent = "No hay recordatorios.";
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+      return;
+    }
+
+    for (const r of list) {
+      const tr = document.createElement("tr");
+      const when = new Date(r.whenTs);
+
+      const td = (t) => {
+        const x = document.createElement("td");
+        x.textContent = t;
+        return x;
+      };
+
+      tr.appendChild(td(when.toLocaleString()));
+      tr.appendChild(td(r.message));
+      tr.appendChild(td(r.repeat ? "Cada 10 min" : "No"));
+
+      const tdAct = document.createElement("td");
+      tdAct.innerHTML = r.active
+        ? '<span style="color:#065f46;font-weight:600">Activo</span>'
+        : '<span style="color:#7c2d12;font-weight:600">Inactivo</span>';
+      tr.appendChild(tdAct);
+
+      const tdActions = document.createElement("td");
+
+      // Botón activar/desactivar
+      const tgl = document.createElement("button");
+      tgl.textContent = r.active ? "Desactivar" : "Activar";
+      tgl.onclick = async () => {
+        try {
+          await toggleReminderActive(r.id, !r.active);
+        } catch (err) {
+          console.error("Error al alternar recordatorio:", err);
+          alert("No se pudo cambiar el estado del recordatorio.");
         }
+      };
 
-        for (const c of rows) {
-          const card = document.createElement("article");
-          card.className = "contact-card";
-          card.dataset.readonly = String(!!c.is_global);
-
-          const main = document.createElement("div");
-          main.className = "contact-main";
-
-          const title = document.createElement("div");
-          title.className = "contact-title";
-          title.textContent = c.name || "—";
-          title.title = c.name || "";
-          main.appendChild(title);
-
-          const phoneLine = document.createElement("div");
-          phoneLine.className = "contact-line";
-          if (c.phone) {
-            const a = document.createElement("a");
-            a.href = "tel:" + (c.phone || "").replace(/[^0-9+]/g, "");
-            a.textContent = c.phone;
-            a.title = c.phone;
-            phoneLine.appendChild(a);
-          } else {
-            phoneLine.textContent = "Teléfono";
-            phoneLine.classList.add("muted");
+      // Botón borrar
+      const del = document.createElement("button");
+      del.textContent = "Borrar";
+      del.style.marginLeft = "6px";
+      del.onclick = async () => {
+        try {
+          const e = reminderTimers.get(r.id);
+          if (e) {
+            if (e.timeoutId) clearTimeout(e.timeoutId);
+            if (e.intervalId) clearInterval(e.intervalId);
           }
-          main.appendChild(phoneLine);
-
-          const emailLine = document.createElement("div");
-          emailLine.className = "contact-line";
-          if (c.email) {
-            const a = document.createElement("a");
-            a.href = `mailto:${c.email}`;
-            a.textContent = c.email;
-            a.title = c.email;
-            emailLine.appendChild(a);
-          } else {
-            emailLine.textContent = "Email";
-            emailLine.classList.add("muted");
-          }
-          main.appendChild(emailLine);
-
-          const meta = document.createElement("div");
-          meta.className = "contact-meta";
-          const cat = document.createElement("small");
-          cat.textContent = c.category || "";
-          meta.appendChild(cat);
-
-          const codigo = (c.codigo || "").trim();
-          if (codigo) {
-            const cod = document.createElement("small");
-            cod.textContent = `Código de mediador: ${codigo}`;
-            meta.appendChild(cod);
-          }
-          main.appendChild(meta);
-
-          const actions = document.createElement("div");
-          actions.className = "contact-actions";
-
-          const btnEdit = document.createElement("button");
-          btnEdit.id = `btn-edit-${c.id}`;
-          btnEdit.className = "icon-btn";
-          btnEdit.innerHTML = '<span aria-hidden="true">✏️</span>';
-          btnEdit.title = "Modificar";
-          btnEdit.disabled = c.readonly;
-          btnEdit.onclick = () => editContact(c.id);
-
-          const btnDelete = document.createElement("button");
-          btnDelete.id = `btn-delete-${c.id}`;
-          btnDelete.className = "icon-btn";
-          btnDelete.innerHTML = '<span aria-hidden="true">🗑️</span>';
-          btnDelete.title = "Borrar";
-          btnDelete.disabled = c.readonly;
-          btnDelete.onclick = () => deleteContact(c.id);
-
-          actions.appendChild(btnEdit);
-          actions.appendChild(btnDelete);
-
-          card.appendChild(main);
-          card.appendChild(actions);
-          container.appendChild(card);
+          reminderTimers.delete(r.id);
+          await deleteReminder(r.id);
+          await refreshRemindersTable();
+        } catch (err) {
+          console.error("Error al borrar recordatorio:", err);
+          alert("No se pudo eliminar el recordatorio.");
         }
-      } catch (err) {
-        console.error("Error en refreshList():", err);
-        alert("No se pudieron cargar los contactos. Revisa tu conexión o vuelve a intentar.");
+      };
+
+      tdActions.appendChild(tgl);
+      tdActions.appendChild(del);
+      tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    }
+
+  } catch (err) {
+    console.error("Excepción en refreshRemindersTable():", err);
+    alert("No se pudieron cargar los recordatorios. Intenta nuevamente más tarde.");
+  }
+}
+
+function sendSystemNotification(message) { try { if ('Notification' in window && Notification.permission === 'granted') { const n = new Notification('Recordatorio', { body: message }); n.onclick = () => { window.focus(); $('reminderPopup').style.display = 'none'; }; } } catch { } }
+
+function scheduleReminderInMemory(rem) {
+  try {
+    if (!rem || !rem.id) {
+      console.warn("Recordatorio inválido al intentar programar:", rem);
+      return;
+    }
+
+    // Limpiar cualquier temporizador previo del mismo ID
+    const ex = reminderTimers.get(rem.id);
+    if (ex) {
+      try {
+        if (ex.timeoutId) clearTimeout(ex.timeoutId);
+        if (ex.intervalId) clearInterval(ex.intervalId);
+      } catch (cleanErr) {
+        console.warn("Error limpiando timers previos:", cleanErr);
       }
     }
+    reminderTimers.delete(rem.id);
 
-
-    /* =========================
-       Recordatorios
-       ========================= */
-    async function sbUser() {
-      const { data: { user }, error } = await sb.auth.getUser();
-      if (error) throw error;
-      if (!user) throw new Error("No hay usuario autenticado.");
-      return user;
+    if (!rem.active) {
+      console.info(`Recordatorio ${rem.id} está inactivo, no se programará.`);
+      return;
     }
 
-    async function addReminder({ message, whenTs, repeat }) {
+    const entry = { timeoutId: null, intervalId: null };
+
+    const trigger = () => {
       try {
-        const user = await sbUser();
+        currentPopupReminderId = rem.id;
+        sendSystemNotification(rem.message);
+        showReminderPopup(rem.message, rem.repeat);
 
-        const whenIso = new Date(whenTs).toISOString();
-        if (isNaN(new Date(whenTs).getTime())) {
-          throw new Error("Fecha/hora de recordatorio no válida.");
-        }
-
-        const { data, error } = await sb
-          .from("reminders")
-          .insert({
-            user_id: user.id,
-            message,
-            when_ts: whenIso,
-            repeat: !!repeat,
-            active: true
-          })
-          .select("id")
-          .single();
-
-        if (error) {
-          console.error("Error insertando recordatorio:", error);
-          alert("No se pudo guardar el recordatorio: " + error.message);
-          return null; // devuelve null en lugar de lanzar excepción
-        }
-
-        return data?.id || null;
-
-      } catch (err) {
-        console.error("Excepción en addReminder():", err);
-        alert("Ocurrió un problema al guardar el recordatorio. Revisa tu conexión e inténtalo de nuevo.");
-        return null;
-      }
-    }
-
-    async function getMyReminders() {
-      try {
-        const user = await sbUser();
-        if (!user?.id) {
-          console.warn("No hay usuario autenticado al intentar obtener recordatorios.");
-          return [];
-        }
-
-        const { data, error } = await sb
-          .from("reminders")
-          .select("id, message, when_ts, repeat, active")
-          .eq("user_id", user.id)
-          .order("when_ts", { ascending: true });
-
-        if (error) {
-          console.error("Error al cargar recordatorios:", error);
-          alert("Error cargando recordatorios: " + error.message);
-          return [];
-        }
-
-        // Validar que data sea un array antes de mapear
-        if (!Array.isArray(data)) {
-          console.warn("Respuesta inesperada de Supabase en getMyReminders:", data);
-          return [];
-        }
-
-        return data.map(r => ({
-          id: r.id,
-          message: r.message,
-          repeat: r.repeat,
-          active: r.active,
-          whenTs: new Date(r.when_ts).getTime()
-        }));
-
-      } catch (err) {
-        console.error("Excepción en getMyReminders():", err);
-        alert("Ocurrió un problema al obtener los recordatorios. Intenta de nuevo.");
-        return [];
-      }
-    }
-
-    async function updateReminder(rem) {
-      try {
-        const user = await sbUser();
-
-        if (!rem || !rem.id) {
-          throw new Error("Datos de recordatorio inválidos.");
-        }
-
-        // Validar fecha
-        const date = new Date(rem.whenTs);
-        if (isNaN(date.getTime())) {
-          throw new Error("Fecha/hora del recordatorio no válida.");
-        }
-
-        const payload = {
-          message: rem.message,
-          when_ts: date.toISOString(),
-          repeat: !!rem.repeat,
-          active: !!rem.active
-        };
-
-        const { error } = await sb
-          .from("reminders")
-          .update(payload)
-          .eq("id", rem.id)
-          .eq("user_id", user.id);
-
-        if (error) {
-          console.error("Error al actualizar recordatorio:", error);
-          alert("No se pudo actualizar el recordatorio: " + error.message);
-          return false;
-        }
-
-        return true;
-
-      } catch (err) {
-        console.error("Excepción en updateReminder():", err);
-        alert("Ocurrió un problema al actualizar el recordatorio. Inténtalo de nuevo.");
-        return false;
-      }
-    }
-
-    async function deleteReminder(id) {
-      try {
-        if (!id || isNaN(Number(id))) {
-          throw new Error("ID de recordatorio inválido.");
-        }
-
-        const user = await sbUser();
-
-        const { error } = await sb
-          .from("reminders")
-          .delete()
-          .eq("id", Number(id))
-          .eq("user_id", user.id);
-
-        if (error) {
-          console.error("Error al borrar recordatorio:", error);
-          alert("No se pudo borrar el recordatorio: " + error.message);
-          return false;
-        }
-
-        toast("Recordatorio eliminado");
-        return true;
-
-      } catch (err) {
-        console.error("Excepción en deleteReminder():", err);
-        alert("Ocurrió un problema al eliminar el recordatorio. Intenta de nuevo.");
-        return false;
-      }
-    }
-
-    async function refreshRemindersTable() {
-      try {
-        const tbody = $("remindersTbody");
-        if (!tbody) throw new Error("No se encontró el contenedor de recordatorios.");
-
-        tbody.innerHTML = "";
-
-        const list = await getMyReminders();
-        if (!Array.isArray(list)) throw new Error("Datos de recordatorios inválidos.");
-
-        // Ordenar por fecha
-        list.sort((a, b) => a.whenTs - b.whenTs);
-
-        if (list.length === 0) {
-          const tr = document.createElement("tr");
-          const td = document.createElement("td");
-          td.colSpan = 5;
-          td.className = "muted";
-          td.textContent = "No hay recordatorios.";
-          tr.appendChild(td);
-          tbody.appendChild(tr);
-          return;
-        }
-
-        for (const r of list) {
-          const tr = document.createElement("tr");
-          const when = new Date(r.whenTs);
-
-          const td = (t) => {
-            const x = document.createElement("td");
-            x.textContent = t;
-            return x;
-          };
-
-          tr.appendChild(td(when.toLocaleString()));
-          tr.appendChild(td(r.message));
-          tr.appendChild(td(r.repeat ? "Cada 10 min" : "No"));
-
-          const tdAct = document.createElement("td");
-          tdAct.innerHTML = r.active
-            ? '<span style="color:#065f46;font-weight:600">Activo</span>'
-            : '<span style="color:#7c2d12;font-weight:600">Inactivo</span>';
-          tr.appendChild(tdAct);
-
-          const tdActions = document.createElement("td");
-
-          // Botón activar/desactivar
-          const tgl = document.createElement("button");
-          tgl.textContent = r.active ? "Desactivar" : "Activar";
-          tgl.onclick = async () => {
+        // Si está configurado para repetirse
+        if (rem.repeat && rem.active) {
+          entry.intervalId = setInterval(() => {
             try {
-              await toggleReminderActive(r.id, !r.active);
-            } catch (err) {
-              console.error("Error al alternar recordatorio:", err);
-              alert("No se pudo cambiar el estado del recordatorio.");
+              currentPopupReminderId = rem.id;
+              sendSystemNotification(rem.message);
+              showReminderPopup(rem.message, true);
+            } catch (innerErr) {
+              console.error("Error dentro del recordatorio repetido:", innerErr);
             }
-          };
+          }, 10 * 60 * 1000);
 
-          // Botón borrar
-          const del = document.createElement("button");
-          del.textContent = "Borrar";
-          del.style.marginLeft = "6px";
-          del.onclick = async () => {
-            try {
-              const e = reminderTimers.get(r.id);
-              if (e) {
-                if (e.timeoutId) clearTimeout(e.timeoutId);
-                if (e.intervalId) clearInterval(e.intervalId);
-              }
-              reminderTimers.delete(r.id);
-              await deleteReminder(r.id);
-              await refreshRemindersTable();
-            } catch (err) {
-              console.error("Error al borrar recordatorio:", err);
-              alert("No se pudo eliminar el recordatorio.");
-            }
-          };
-
-          tdActions.appendChild(tgl);
-          tdActions.appendChild(del);
-          tr.appendChild(tdActions);
-          tbody.appendChild(tr);
-        }
-
-      } catch (err) {
-        console.error("Excepción en refreshRemindersTable():", err);
-        alert("No se pudieron cargar los recordatorios. Intenta nuevamente más tarde.");
-      }
-    }
-
-    function sendSystemNotification(message) { try { if ('Notification' in window && Notification.permission === 'granted') { const n = new Notification('Recordatorio', { body: message }); n.onclick = () => { window.focus(); $('reminderPopup').style.display = 'none'; }; } } catch { } }
-    function scheduleReminderInMemory(rem) {
-      try {
-        if (!rem || !rem.id) {
-          console.warn("Recordatorio inválido al intentar programar:", rem);
-          return;
-        }
-
-        // Limpiar cualquier temporizador previo del mismo ID
-        const ex = reminderTimers.get(rem.id);
-        if (ex) {
-          try {
-            if (ex.timeoutId) clearTimeout(ex.timeoutId);
-            if (ex.intervalId) clearInterval(ex.intervalId);
-          } catch (cleanErr) {
-            console.warn("Error limpiando timers previos:", cleanErr);
-          }
-        }
-        reminderTimers.delete(rem.id);
-
-        if (!rem.active) {
-          console.info(`Recordatorio ${rem.id} está inactivo, no se programará.`);
-          return;
-        }
-
-        const entry = { timeoutId: null, intervalId: null };
-
-        const trigger = () => {
-          try {
-            currentPopupReminderId = rem.id;
-            sendSystemNotification(rem.message);
-            showReminderPopup(rem.message, rem.repeat);
-
-            // Si está configurado para repetirse
-            if (rem.repeat && rem.active) {
-              entry.intervalId = setInterval(() => {
-                try {
-                  currentPopupReminderId = rem.id;
-                  sendSystemNotification(rem.message);
-                  showReminderPopup(rem.message, true);
-                } catch (innerErr) {
-                  console.error("Error dentro del recordatorio repetido:", innerErr);
-                }
-              }, 10 * 60 * 1000);
-
-              reminderTimers.set(rem.id, entry);
-            }
-
-          } catch (err) {
-            console.error("Error al ejecutar recordatorio:", err);
-          }
-        };
-
-        // Calcular cuándo debe dispararse
-        const diff = rem.whenTs - Date.now();
-        if (isNaN(diff)) {
-          console.warn("Recordatorio con fecha inválida:", rem);
-          return;
-        }
-
-        if (diff <= 0) {
-          trigger(); // si ya venció, dispara de inmediato
-        } else {
-          entry.timeoutId = setTimeout(trigger, diff);
           reminderTimers.set(rem.id, entry);
         }
 
       } catch (err) {
-        console.error("Excepción en scheduleReminderInMemory():", err);
+        console.error("Error al ejecutar recordatorio:", err);
+      }
+    };
+
+    // Calcular cuándo debe dispararse
+    const diff = rem.whenTs - Date.now();
+    if (isNaN(diff)) {
+      console.warn("Recordatorio con fecha inválida:", rem);
+      return;
+    }
+
+    if (diff <= 0) {
+      trigger(); // si ya venció, dispara de inmediato
+    } else {
+      entry.timeoutId = setTimeout(trigger, diff);
+      reminderTimers.set(rem.id, entry);
+    }
+
+  } catch (err) {
+    console.error("Excepción en scheduleReminderInMemory():", err);
+  }
+}
+
+async function loadAndScheduleReminders() {
+  try {
+    const list = await getMyReminders();
+
+    if (!Array.isArray(list)) {
+      console.warn("Respuesta inesperada en loadAndScheduleReminders():", list);
+      return;
+    }
+
+    for (const r of list) {
+      try {
+        scheduleReminderInMemory(r);
+      } catch (innerErr) {
+        console.error("Error al programar recordatorio individual:", r, innerErr);
       }
     }
 
-    async function loadAndScheduleReminders() {
+    console.info("✅ Recordatorios cargados y programados correctamente.");
+
+  } catch (err) {
+    console.error("Excepción en loadAndScheduleReminders():", err);
+    alert("No se pudieron cargar los recordatorios. Inténtalo de nuevo más tarde.");
+  }
+}
+
+async function toggleReminderActive(id, makeActive) {
+  try {
+    if (!id) throw new Error("ID de recordatorio inválido en toggleReminderActive().");
+
+    // 🔹 1. Limpiar timers existentes para este recordatorio
+    const e = reminderTimers.get(id);
+    if (e) {
       try {
-        const list = await getMyReminders();
-
-        if (!Array.isArray(list)) {
-          console.warn("Respuesta inesperada en loadAndScheduleReminders():", list);
-          return;
-        }
-
-       // console.info(`Cargando ${list.length} recordatorio(s) en memoria...`);
-
-        for (const r of list) {
-          try {
-            scheduleReminderInMemory(r);
-          } catch (innerErr) {
-            console.error("Error al programar recordatorio individual:", r, innerErr);
-          }
-        }
-
-        console.info("✅ Recordatorios cargados y programados correctamente.");
-
-      } catch (err) {
-        console.error("Excepción en loadAndScheduleReminders():", err);
-        alert("No se pudieron cargar los recordatorios. Inténtalo de nuevo más tarde.");
+        if (e.timeoutId) clearTimeout(e.timeoutId);
+        if (e.intervalId) clearInterval(e.intervalId);
+      } catch (cleanErr) {
+        console.warn("Error al limpiar timers en toggleReminderActive():", cleanErr);
       }
     }
+    reminderTimers.delete(id);
 
-    async function toggleReminderActive(id, makeActive) {
-      try {
-        if (!id) throw new Error("ID de recordatorio inválido en toggleReminderActive().");
+    // 🔹 2. Obtener lista actualizada
+    const list = await getMyReminders();
+    if (!Array.isArray(list)) throw new Error("Error al recuperar lista de recordatorios.");
 
-        // 🔹 1. Limpiar timers existentes para este recordatorio
-        const e = reminderTimers.get(id);
-        if (e) {
-          try {
-            if (e.timeoutId) clearTimeout(e.timeoutId);
-            if (e.intervalId) clearInterval(e.intervalId);
-          } catch (cleanErr) {
-            console.warn("Error al limpiar timers en toggleReminderActive():", cleanErr);
-          }
-        }
-        reminderTimers.delete(id);
+    // 🔹 3. Buscar el recordatorio
+    const rem = list.find(x => x.id === id);
+    if (!rem) {
+      console.warn(`No se encontró el recordatorio con ID ${id}.`);
+      return;
+    }
 
-        // 🔹 2. Obtener lista actualizada
-        const list = await getMyReminders();
-        if (!Array.isArray(list)) throw new Error("Error al recuperar lista de recordatorios.");
+    // 🔹 4. Actualizar estado
+    rem.active = makeActive;
 
-        // 🔹 3. Buscar el recordatorio
-        const rem = list.find(x => x.id === id);
-        if (!rem) {
-          console.warn(`No se encontró el recordatorio con ID ${id}.`);
-          return;
-        }
+    const ok = await updateReminder(rem);
+    if (ok === false) {
+      console.warn(`No se pudo actualizar el estado del recordatorio ${id}.`);
+      return;
+    }
 
-        // 🔹 4. Actualizar estado
-        rem.active = makeActive;
+    // 🔹 5. Si se activa, reprogramar
+    if (makeActive) {
+      scheduleReminderInMemory(rem);
+    }
 
-        const ok = await updateReminder(rem);
-        if (ok === false) {
-          console.warn(`No se pudo actualizar el estado del recordatorio ${id}.`);
-          return;
-        }
+    // 🔹 6. Refrescar vista
+    await refreshRemindersTable();
 
-        // 🔹 5. Si se activa, reprogramar
-        if (makeActive) {
-          scheduleReminderInMemory(rem);
-        }
+    toast(makeActive ? "Recordatorio activado" : "Recordatorio desactivado");
 
-        // 🔹 6. Refrescar vista
-        await refreshRemindersTable();
+  } catch (err) {
+    console.error("Excepción en toggleReminderActive():", err);
+    alert("No se pudo cambiar el estado del recordatorio. Inténtalo de nuevo.");
+  }
+}
 
-        toast(makeActive ? "Recordatorio activado" : "Recordatorio desactivado");
+async function scheduleReminder() {
+  try {
+    const date = $('remDate').value;
+    const time = $('remTime').value;
+    const msg = $('remMsg').value.trim();
+    const repeat = $('remRepeat').checked;
 
-      } catch (err) {
-        console.error("Excepción en toggleReminderActive():", err);
-        alert("No se pudo cambiar el estado del recordatorio. Inténtalo de nuevo.");
+    if (!date || !time || !msg) {
+      alert('Completa fecha, hora y mensaje.');
+      return;
+    }
+
+    const target = new Date(`${date}T${time}`);
+    if (isNaN(target.getTime())) {
+      alert('Fecha u hora no válidas.');
+      return;
+    }
+    if (target.getTime() <= Date.now()) {
+      alert('La fecha y hora deben ser futuras.');
+      return;
+    }
+
+    // 1️⃣ Guardar en Supabase
+    const id = await addReminder({ message: msg, whenTs: target.getTime(), repeat });
+    if (!id) return;
+
+    // 2️⃣ Esperar confirmación
+    await new Promise(r => setTimeout(r, 200));
+
+    // 3️⃣ Cargar solo el nuevo recordatorio
+    const list = await getMyReminders();
+    const rem = list.find(r => r.id === id);
+
+    if (rem) scheduleReminderInMemory(rem);
+
+    // 4️⃣ Actualizar la tabla (solo una vez)
+    await refreshRemindersTable();
+
+    // 5️⃣ Limpiar formulario y cerrar
+    $('reminderStatus').textContent = `Guardado para ${target.toLocaleString()}${repeat ? ' (cada 10 min)' : ''}.`;
+    setTimeout(() => {
+      showOverlay('reminderFormPopup', false);
+      $('reminderStatus').textContent = '';
+      $('remDate').value = '';
+      $('remTime').value = '';
+      $('remMsg').value = '';
+      $('remRepeat').checked = false;
+      toast('Recordatorio programado');
+    }, 700);
+
+  } catch (err) {
+    console.error("Excepción en scheduleReminder():", err);
+    alert("Ocurrió un problema al guardar el recordatorio. Intenta nuevamente.");
+  }
+}
+
+function showReminderPopup(message, repeating) {
+  $('reminderPopup').style.display = 'none'; // cerrar si estaba abierto
+  $('reminderText').textContent = message;
+  $('reminderPopup').style.display = 'flex';
+  $('btnStopRepeat').style.display = repeating ? 'inline-block' : 'none';
+}
+
+async function stopRepeatForCurrent() {
+  try {
+    if (currentPopupReminderId == null) {
+      const popup = $('reminderPopup');
+      if (popup) popup.style.display = 'none';
+      return;
+    }
+
+    const list = await getMyReminders();
+    if (!Array.isArray(list)) {
+      throw new Error("No se pudo obtener la lista de recordatorios.");
+    }
+
+    const rem = list.find(x => x.id === currentPopupReminderId);
+    if (rem) {
+      rem.active = false;
+
+      // Actualizar en base de datos
+      const ok = await updateReminder(rem);
+      if (ok === false) {
+        console.warn("No se pudo desactivar el recordatorio:", rem.id);
       }
-    }
 
-
-    async function scheduleReminder() {
-      try {
-        const date = $('remDate').value;
-        const time = $('remTime').value;
-        const msg = $('remMsg').value.trim();
-        const repeat = $('remRepeat').checked;
-
-        if (!date || !time || !msg) {
-          alert('Completa fecha, hora y mensaje.');
-          return;
-        }
-
-        const target = new Date(`${date}T${time}`);
-        if (isNaN(target.getTime())) {
-          alert('Fecha u hora no válidas.');
-          return;
-        }
-        if (target.getTime() <= Date.now()) {
-          alert('La fecha y hora deben ser futuras.');
-          return;
-        }
-
-        // 1️⃣ Guardar en Supabase
-        const id = await addReminder({ message: msg, whenTs: target.getTime(), repeat });
-        if (!id) return;
-
-        // 2️⃣ Esperar confirmación
-        await new Promise(r => setTimeout(r, 200));
-
-        // 3️⃣ Cargar solo el nuevo recordatorio
-        const list = await getMyReminders();
-        const rem = list.find(r => r.id === id);
-
-        if (rem) scheduleReminderInMemory(rem);
-
-        // 4️⃣ Actualizar la tabla (solo una vez)
-        await refreshRemindersTable();
-
-        // 5️⃣ Limpiar formulario y cerrar
-        $('reminderStatus').textContent = `Guardado para ${target.toLocaleString()}${repeat ? ' (cada 10 min)' : ''}.`;
-        setTimeout(() => {
-          showOverlay('reminderFormPopup', false);
-          $('reminderStatus').textContent = '';
-          $('remDate').value = '';
-          $('remTime').value = '';
-          $('remMsg').value = '';
-          $('remRepeat').checked = false;
-          toast('Recordatorio programado');
-        }, 700);
-
-      } catch (err) {
-        console.error("Excepción en scheduleReminder():", err);
-        alert("Ocurrió un problema al guardar el recordatorio. Intenta nuevamente.");
-      }
-    }
-
-
-
-    function showReminderPopup(message, repeating) {
-      $('reminderPopup').style.display = 'none'; // cerrar si estaba abierto
-      $('reminderText').textContent = message;
-      $('reminderPopup').style.display = 'flex';
-      $('btnStopRepeat').style.display = repeating ? 'inline-block' : 'none';
-    }
-    async function stopRepeatForCurrent() {
-      try {
-        if (currentPopupReminderId == null) {
-          const popup = $('reminderPopup');
-          if (popup) popup.style.display = 'none';
-          return;
-        }
-
-        const list = await getMyReminders();
-        if (!Array.isArray(list)) {
-          throw new Error("No se pudo obtener la lista de recordatorios.");
-        }
-
-        const rem = list.find(x => x.id === currentPopupReminderId);
-        if (rem) {
-          rem.active = false;
-
-          // Actualizar en base de datos
-          const ok = await updateReminder(rem);
-          if (ok === false) {
-            console.warn("No se pudo desactivar el recordatorio:", rem.id);
-          }
-
-          // Limpiar timers activos
-          const e = reminderTimers.get(rem.id);
-          if (e) {
-            try {
-              if (e.timeoutId) clearTimeout(e.timeoutId);
-              if (e.intervalId) clearInterval(e.intervalId);
-            } catch (timerErr) {
-              console.error("Error al limpiar timers de recordatorio:", timerErr);
-            }
-          }
-          reminderTimers.delete(rem.id);
-
-          await refreshRemindersTable();
-        } else {
-          console.warn("No se encontró el recordatorio actual en la lista.");
-        }
-
-      } catch (err) {
-        console.error("Excepción en stopRepeatForCurrent():", err);
-        alert("Ocurrió un problema al detener el recordatorio repetido.");
-      } finally {
-        // 🔹 Asegurar cierre del popup y reinicio del estado
+      // Limpiar timers activos
+      const e = reminderTimers.get(rem.id);
+      if (e) {
         try {
-          const popup = $('reminderPopup');
-          if (popup) popup.style.display = 'none';
-        } catch (closeErr) {
-          console.warn("Error al cerrar el popup de recordatorio:", closeErr);
+          if (e.timeoutId) clearTimeout(e.timeoutId);
+          if (e.intervalId) clearInterval(e.intervalId);
+        } catch (timerErr) {
+          console.error("Error al limpiar timers de recordatorio:", timerErr);
         }
-        currentPopupReminderId = null;
+      }
+      reminderTimers.delete(rem.id);
+
+      await refreshRemindersTable();
+    } else {
+      console.warn("No se encontró el recordatorio actual en la lista.");
+    }
+
+  } catch (err) {
+    console.error("Excepción en stopRepeatForCurrent():", err);
+    alert("Ocurrió un problema al detener el recordatorio repetido.");
+  } finally {
+    // 🔹 Asegurar cierre del popup y reinicio del estado
+    try {
+      const popup = $('reminderPopup');
+      if (popup) popup.style.display = 'none';
+    } catch (closeErr) {
+      console.warn("Error al cerrar el popup de recordatorio:", closeErr);
+    }
+    currentPopupReminderId = null;
+  }
+}
+
+function requestNotificationsViaCheckbox(e) {
+  if (!e.target.checked) return;
+  if (!('Notification' in window)) {
+    alert('Este navegador no soporta notificaciones.');
+    e.target.checked = false;
+    return;
+  }
+  if (Notification.permission === 'granted') {
+    toast('Notificaciones activadas');
+    return;
+  }
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') toast('Notificaciones permitidas');
+    else {
+      alert('Notificaciones no permitidas.');
+      e.target.checked = false;
+    }
+  } catch {
+    e.target.checked = false;
+    alert('No se pudo solicitar permiso.');
+  }
+}
+
+/* =========================
+   Export/Import
+   ========================= */
+async function exportDB() {
+  try {
+    if (!currentUser) {
+      alert("Inicia sesión primero.");
+      return;
+    }
+
+    // 🔹 Obtener contactos y recordatorios en paralelo
+    const [contactsRes, remindersRes] = await Promise.all([
+      sb.from('contacts').select('*').eq('user_id', currentUser.id),
+      sb.from('reminders').select('*').eq('user_id', currentUser.id)
+    ]);
+
+    // Verificar errores de Supabase
+    if (contactsRes.error) throw contactsRes.error;
+    if (remindersRes.error) throw remindersRes.error;
+
+    const contacts = contactsRes.data || [];
+    const reminders = remindersRes.data || [];
+
+    // 🔹 Crear estructura de exportación
+    const data = {
+      meta: {
+        app: "GuiaTelefonica",
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        user: currentUser.email
+      },
+      contacts,
+      reminders
+    };
+
+    // 🔹 Crear archivo JSON descargable
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `guia_telefonica_${currentUser.email}.json`;
+
+    // Ejecutar descarga
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    toast("Exportación completada");
+
+  } catch (err) {
+    console.error("Excepción en exportDB():", err);
+    alert("No se pudo exportar la base de datos. Revisa tu conexión o vuelve a intentarlo.");
+  }
+}
+
+async function importDBFromText(jsonText) {
+  try {
+    if (!currentUser) {
+      alert("Inicia sesión primero.");
+      return;
+    }
+
+    // 1️⃣ Parsear JSON
+    let data;
+    try {
+      data = JSON.parse(jsonText);
+    } catch (parseErr) {
+      console.error("Error al parsear JSON:", parseErr);
+      alert("El archivo JSON está corrupto o tiene formato inválido.");
+      return;
+    }
+
+    // 2️⃣ Extraer y validar estructuras base
+    const contactsRaw = Array.isArray(data.contacts) ? data.contacts : [];
+    const remindersRaw = Array.isArray(data.reminders) ? data.reminders : [];
+
+    const contactsToInsert = [];
+    const seen = new Set();
+
+    // 3️⃣ Normalizar contactos
+    for (const c of contactsRaw) {
+      try {
+        if (c.is_global === true || c.owner === "admin") continue;
+
+        const name = (c.name ?? "").trim();
+        if (!name) continue;
+
+        const phone = (c.phone ?? "").trim();
+        const email = (c.email ?? "").trim();
+        const category = (c.category ?? "").trim();
+        const codigo = (c.codigo ?? "").trim();
+
+        const key = [name, phone, email, category, codigo].join("|").toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        contactsToInsert.push({
+          user_id: currentUser.id,
+          name, phone, email, category, codigo
+        });
+      } catch (innerErr) {
+        console.warn("Error procesando contacto:", c, innerErr);
       }
     }
 
+    // 4️⃣ Normalizar recordatorios
+    const remindersToInsert = [];
+    for (const r of remindersRaw) {
+      try {
+        const message = (r.message ?? "").trim();
+        if (!message) continue;
 
-    async function requestNotificationsViaCheckbox(e) {
-      if (!e.target.checked) return;
-      if (!('Notification' in window)) {
-        alert('Este navegador no soporta notificaciones.');
-        e.target.checked = false;
+        let whenIso;
+        if (r.when_ts) {
+          const t = new Date(r.when_ts);
+          if (isNaN(t.getTime())) continue;
+          whenIso = t.toISOString();
+        } else if (r.whenTs) {
+          const t = new Date(typeof r.whenTs === "number" ? r.whenTs : Date.parse(r.whenTs));
+          if (isNaN(t.getTime())) continue;
+          whenIso = t.toISOString();
+        } else continue;
+
+        remindersToInsert.push({
+          user_id: currentUser.id,
+          message,
+          when_ts: whenIso,
+          repeat: !!r.repeat,
+          active: typeof r.active === "boolean" ? r.active : true
+        });
+      } catch (innerErr) {
+        console.warn("Error procesando recordatorio:", r, innerErr);
+      }
+    }
+
+    // Dedupe contra la DB (evita insertar recordatorios ya existentes)
+    try {
+      const { data: existingRemsData, error: existErr } = await sb
+        .from('reminders')
+        .select('when_ts,message')
+        .eq('user_id', currentUser.id);
+
+      if (!existErr && Array.isArray(existingRemsData)) {
+        const existingKeys = new Set(existingRemsData.map(x => `${x.when_ts}|${(x.message || '').trim().toLowerCase()}`));
+        // filtrar
+        const filtered = remindersToInsert.filter(r => {
+          const key = `${r.when_ts}|${(r.message || '').trim().toLowerCase()}`;
+          return !existingKeys.has(key);
+        });
+        // reasignar solo si se han filtrado duplicados
+        if (filtered.length !== remindersToInsert.length) {
+          console.info(`Import: eliminado ${remindersToInsert.length - filtered.length} recordatorio(s) duplicados contra DB.`);
+        }
+        remindersToInsert.length = 0;
+        remindersToInsert.push(...filtered);
+      }
+    } catch (dedupErr) {
+      console.warn("No se pudo deduplicar contra DB:", dedupErr);
+    }
+
+    async function batchInsert(table, rows, size = 500) {
+      try {
+        if (!Array.isArray(rows) || rows.length === 0) {
+          console.warn(`batchInsert(): no hay filas para insertar en ${table}.`);
+          return;
+        }
+
+        console.info(`Iniciando inserción de ${rows.length} registros en '${table}' (tamaño de lote: ${size})...`);
+
+        let totalInserted = 0;
+
+        for (let i = 0; i < rows.length; i += size) {
+          const slice = rows.slice(i, i + size);
+
+          try {
+            const { error } = await sb.from(table).insert(slice);
+            if (error) {
+              console.error(`Error insertando lote ${i / size + 1} en ${table}:`, error);
+              throw new Error(`${table}: ${error.message}`);
+            }
+
+            totalInserted += slice.length;
+            console.info(`✔️ Insertado lote ${i / size + 1}: ${slice.length} registros`);
+          } catch (innerErr) {
+            // Si un lote falla, lo registramos y abortamos la operación completa
+            console.error(`❌ Fallo en lote ${i / size + 1} de '${table}':`, innerErr);
+            throw innerErr;
+          }
+        }
+
+        console.info(`✅ Inserción completada en '${table}': ${totalInserted} registros insertados.`);
+
+      } catch (err) {
+        console.error(`Excepción en batchInsert(${table}):`, err);
+        alert(`Error insertando datos en '${table}': ${err.message || err}`);
+        throw err;
+      }
+    }
+
+    // 6️⃣ Ejecutar inserciones si hay datos
+    if (contactsToInsert.length) await batchInsert("contacts", contactsToInsert);
+    if (remindersToInsert.length) await batchInsert("reminders", remindersToInsert);
+
+    // 7️⃣ Refrescar UI y recordatorios
+    await refreshList();
+    await refreshRemindersTable();
+    clearAllReminderTimers();
+    await loadAndScheduleReminders();
+
+    // 8️⃣ Éxito
+    toast(`Importación completada: ${contactsToInsert.length} contactos, ${remindersToInsert.length} recordatorios.`);
+
+  } catch (err) {
+    console.error("Excepción en importDBFromText():", err);
+    alert("Error importando datos: " + (err?.message || err));
+  }
+}
+
+function clearAllReminderTimers() {
+  for (const [id, entry] of reminderTimers.entries()) {
+    try {
+      if (entry && typeof entry === 'object') {
+        if (entry.timeoutId) clearTimeout(entry.timeoutId);
+        if (entry.intervalId) clearInterval(entry.intervalId);
+      }
+    } catch (e) { /* ignore */ }
+  }
+  reminderTimers.clear();
+}
+
+const debounce = (fn, wait = 250) => {
+  let t;
+  return (...a) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...a), wait);
+  };
+};
+const debouncedRefresh = debounce(refreshList, 700);
+
+/* =========================
+   DOMContentLoaded (FIXED - sin memory leaks)
+   ========================= */
+window.addEventListener('DOMContentLoaded', () => {
+  // 🔹 Prevenir múltiples inicializaciones
+  if (__appInitialized) return;
+  __appInitialized = true;
+
+  // Formularios
+  addManagedListener($('loginForm'), 'submit', (e) => { e.preventDefault(); login(); });
+  addManagedListener($('registerForm'), 'submit', (e) => { e.preventDefault(); register(); });
+
+  // Links/login
+  addManagedListener($('linkGoRegister'), 'click', (e) => { e.preventDefault(); showRegister(); });
+  addManagedListener($('btnBackToLogin'), 'click', showLogin);
+  addManagedListener($('linkForgot'), 'click', (e) => { e.preventDefault(); sendResetLink(); });
+
+  // Sesión
+  addManagedListener($('btnLogout'), 'click', logout);
+
+  // Recordatorios & varios
+  addManagedListener($('btnOpenRemForm'), 'click', () => {
+    showOverlay('reminderFormPopup', true);
+  });
+
+  addManagedListener($('btnCancelRemForm'), 'click', () => showOverlay('reminderFormPopup', false));
+  addManagedListener($('tabFormBtn'), 'click', () => { });
+  addManagedListener($('tabListBtn'), 'click', async () => { await refreshRemindersTable(); });
+  addManagedListener($('notifToggle'), 'change', requestNotificationsViaCheckbox);
+  addManagedListener($('btnStartWelcome'), 'click', () => showOverlay('welcomePopup', false));
+  addManagedListener($('btnSave'), 'click', saveContact);
+  addManagedListener($('btnClear'), 'click', resetForm);
+
+  // Filtros
+  addManagedListener($('filterName'), 'input', debouncedRefresh);
+  addManagedListener($('filterEmail'), 'input', debouncedRefresh);
+  addManagedListener($('filterPhone'), 'input', debouncedRefresh);
+  addManagedListener($('filterCategory'), 'change', refreshList);
+
+  addManagedListener($('btnScheduleRem'), 'click', scheduleReminder);
+  addManagedListener($('btnCloseReminder'), 'click', () => $('reminderPopup').style.display = 'none');
+  addManagedListener($('btnStopRepeat'), 'click', stopRepeatForCurrent);
+  addManagedListener($('accordionFilterBtn'), 'click', () => {
+    const btn = $('accordionFilterBtn'), c = $('accordionFilterContent'), ch = $('chevronFilter');
+    const exp = btn.getAttribute('aria-expanded') === 'true';
+    c.style.maxHeight = exp ? '0px' : (c.scrollHeight + 'px');
+    btn.setAttribute('aria-expanded', String(!exp));
+    ch.classList.toggle('up', !exp);
+    ch.textContent = !exp ? '▲' : '▼';
+  });
+
+  addManagedListener($('btnExport'), 'click', exportDB);
+  addManagedListener($('btnImport'), 'click', async () => {
+    if (window.showOpenFilePicker) {
+      try {
+        const [handle] = await showOpenFilePicker({ multiple: false, types: [{ description: "JSON", accept: { "application/json": [".json"] } }] });
+        const file = await handle.getFile(); const text = await file.text(); await importDBFromText(text); return;
+      } catch (err) { if (err?.name === "AbortError") return; }
+    }
+    const inp = $('importFile'); if (inp) { inp.value = ""; inp.click(); }
+  });
+  addManagedListener($('importFile'), 'change', async (e) => { const file = e.target.files?.[0]; if (!file) return; const text = await file.text(); await importDBFromText(text); });
+
+  // Recordatorios - Alternar entre pestañas
+  addManagedListener($('tabFormBtn'), 'click', () => {
+    try {
+      $('tabFormBtn').classList.add('active');
+      $('tabListBtn').classList.remove('active');
+      $('tabForm').classList.add('active');
+      $('tabList').classList.remove('active');
+    } catch (err) {
+      console.error("Error al cambiar a pestaña 'Programar':", err);
+    }
+  });
+
+  addManagedListener($('tabListBtn'), 'click', async () => {
+    try {
+      $('tabListBtn').classList.add('active');
+      $('tabFormBtn').classList.remove('active');
+      $('tabList').classList.add('active');
+      $('tabForm').classList.remove('active');
+    } catch (err) {
+      console.error("Error al cambiar a pestaña 'Mis recordatorios':", err);
+      alert("No se pudieron cargar los recordatorios. Intenta nuevamente.");
+    }
+  });
+
+  // 🔹 Cleanup global al descargar la página
+  window.addEventListener('beforeunload', () => {
+    try {
+      authSubscription?.unsubscribe();
+      cleanupAllListeners();
+      clearAllReminderTimers();
+    } catch (e) {
+      console.log('Cleanup completed');
+    }
+  });
+
+  // Intento de sesión previa en esta pestaña (sessionStorage)
+  (async () => {
+    try {
+      const { data: { session }, error } = await sb.auth.getSession();
+      if (error) throw error;
+
+      if (session?.user) {
+        currentUser = session.user;
         return;
       }
-      if (Notification.permission === 'granted') {
-        toast('Notificaciones activadas');
-        return;
-      }
-      try {
-        const perm = await Notification.requestPermission();
-        if (perm === 'granted') toast('Notificaciones permitidas');
-        else {
-          alert('Notificaciones no permitidas.');
-          e.target.checked = false;
-        }
-      } catch {
-        e.target.checked = false;
-        alert('No se pudo solicitar permiso.');
-      }
-    } // ← ESTA llave faltaba
-
-    /* =========================
-       Export/Import
-       ========================= */
-    async function exportDB() {
-      try {
-        if (!currentUser) {
-          alert("Inicia sesión primero.");
-          return;
-        }
-
-        // 🔹 Obtener contactos y recordatorios en paralelo
-        const [contactsRes, remindersRes] = await Promise.all([
-          sb.from('contacts').select('*').eq('user_id', currentUser.id),
-          sb.from('reminders').select('*').eq('user_id', currentUser.id)
-        ]);
-
-        // Verificar errores de Supabase
-        if (contactsRes.error) throw contactsRes.error;
-        if (remindersRes.error) throw remindersRes.error;
-
-        const contacts = contactsRes.data || [];
-        const reminders = remindersRes.data || [];
-
-        // 🔹 Crear estructura de exportación
-        const data = {
-          meta: {
-            app: "GuiaTelefonica",
-            version: 2,
-            exportedAt: new Date().toISOString(),
-            user: currentUser.email
-          },
-          contacts,
-          reminders
-        };
-
-        // 🔹 Crear archivo JSON descargable
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `guia_telefonica_${currentUser.email}.json`;
-
-        // Ejecutar descarga
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        toast("Exportación completada");
-
-      } catch (err) {
-        console.error("Excepción en exportDB():", err);
-        alert("No se pudo exportar la base de datos. Revisa tu conexión o vuelve a intentarlo.");
-      }
+    } catch (err) {
+      console.warn("Error verificando sesión previa:", err);
     }
 
-    async function importDBFromText(jsonText) {
-      try {
-        if (!currentUser) {
-          alert("Inicia sesión primero.");
-          return;
-        }
-
-        // 1️⃣ Parsear JSON
-        let data;
-        try {
-          data = JSON.parse(jsonText);
-        } catch (parseErr) {
-          console.error("Error al parsear JSON:", parseErr);
-          alert("El archivo JSON está corrupto o tiene formato inválido.");
-          return;
-        }
-
-        // 2️⃣ Extraer y validar estructuras base
-        const contactsRaw = Array.isArray(data.contacts) ? data.contacts : [];
-        const remindersRaw = Array.isArray(data.reminders) ? data.reminders : [];
-
-        const contactsToInsert = [];
-        const seen = new Set();
-
-        // 3️⃣ Normalizar contactos
-        for (const c of contactsRaw) {
-          try {
-            if (c.is_global === true || c.owner === "admin") continue;
-
-            const name = (c.name ?? "").trim();
-            if (!name) continue;
-
-            const phone = (c.phone ?? "").trim();
-            const email = (c.email ?? "").trim();
-            const category = (c.category ?? "").trim();
-            const codigo = (c.codigo ?? "").trim();
-
-            const key = [name, phone, email, category, codigo].join("|").toLowerCase();
-            if (seen.has(key)) continue;
-            seen.add(key);
-
-            contactsToInsert.push({
-              user_id: currentUser.id,
-              name, phone, email, category, codigo
-            });
-          } catch (innerErr) {
-            console.warn("Error procesando contacto:", c, innerErr);
-          }
-        }
-
-        // 4️⃣ Normalizar recordatorios
-        const remindersToInsert = [];
-        for (const r of remindersRaw) {
-          try {
-            const message = (r.message ?? "").trim();
-            if (!message) continue;
-
-            let whenIso;
-            if (r.when_ts) {
-              const t = new Date(r.when_ts);
-              if (isNaN(t.getTime())) continue;
-              whenIso = t.toISOString();
-            } else if (r.whenTs) {
-              const t = new Date(typeof r.whenTs === "number" ? r.whenTs : Date.parse(r.whenTs));
-              if (isNaN(t.getTime())) continue;
-              whenIso = t.toISOString();
-            } else continue;
-
-            remindersToInsert.push({
-              user_id: currentUser.id,
-              message,
-              when_ts: whenIso,
-              repeat: !!r.repeat,
-              active: typeof r.active === "boolean" ? r.active : true
-            });
-          } catch (innerErr) {
-            console.warn("Error procesando recordatorio:", r, innerErr);
-          }
-        }
-
-        // Dedupe contra la DB (evita insertar recordatorios ya existentes)
-        try {
-          const { data: existingRemsData, error: existErr } = await sb
-            .from('reminders')
-            .select('when_ts,message')
-            .eq('user_id', currentUser.id);
-
-          if (!existErr && Array.isArray(existingRemsData)) {
-            const existingKeys = new Set(existingRemsData.map(x => `${x.when_ts}|${(x.message || '').trim().toLowerCase()}`));
-            // filtrar
-            const filtered = remindersToInsert.filter(r => {
-              const key = `${r.when_ts}|${(r.message || '').trim().toLowerCase()}`;
-              return !existingKeys.has(key);
-            });
-            // reasignar solo si se han filtrado duplicados
-            if (filtered.length !== remindersToInsert.length) {
-              console.info(`Import: eliminado ${remindersToInsert.length - filtered.length} recordatorio(s) duplicados contra DB.`);
-            }
-            remindersToInsert.length = 0;
-            remindersToInsert.push(...filtered);
-          }
-        } catch (dedupErr) {
-          console.warn("No se pudo deduplicar contra DB:", dedupErr);
-        }
-
-        async function batchInsert(table, rows, size = 500) {
-          try {
-            if (!Array.isArray(rows) || rows.length === 0) {
-              console.warn(`batchInsert(): no hay filas para insertar en ${table}.`);
-              return;
-            }
-
-            console.info(`Iniciando inserción de ${rows.length} registros en '${table}' (tamaño de lote: ${size})...`);
-
-            let totalInserted = 0;
-
-            for (let i = 0; i < rows.length; i += size) {
-              const slice = rows.slice(i, i + size);
-
-              try {
-                const { error } = await sb.from(table).insert(slice);
-                if (error) {
-                  console.error(`Error insertando lote ${i / size + 1} en ${table}:`, error);
-                  throw new Error(`${table}: ${error.message}`);
-                }
-
-                totalInserted += slice.length;
-                console.info(`✔️ Insertado lote ${i / size + 1}: ${slice.length} registros`);
-              } catch (innerErr) {
-                // Si un lote falla, lo registramos y abortamos la operación completa
-                console.error(`❌ Fallo en lote ${i / size + 1} de '${table}':`, innerErr);
-                throw innerErr;
-              }
-            }
-
-            console.info(`✅ Inserción completada en '${table}': ${totalInserted} registros insertados.`);
-
-          } catch (err) {
-            console.error(`Excepción en batchInsert(${table}):`, err);
-            alert(`Error insertando datos en '${table}': ${err.message || err}`);
-            throw err; // relanzamos para que el nivel superior (por ejemplo importDBFromText) decida si continuar
-          }
-        }
-
-
-        // 6️⃣ Ejecutar inserciones si hay datos
-        if (contactsToInsert.length) await batchInsert("contacts", contactsToInsert);
-        if (remindersToInsert.length) await batchInsert("reminders", remindersToInsert);
-
-        // 7️⃣ Refrescar UI y recordatorios
-        await refreshList();
-        await refreshRemindersTable();
-        clearAllReminderTimers();
-        await loadAndScheduleReminders();
-
-        // 8️⃣ Éxito
-        toast(`Importación completada: ${contactsToInsert.length} contactos, ${remindersToInsert.length} recordatorios.`);
-
-      } catch (err) {
-        console.error("Excepción en importDBFromText():", err);
-        alert("Error importando datos: " + (err?.message || err));
-      }
-    }
-
-
-    //function clearAllReminderTimers() { for (const e of reminderTimers.values()) { try { if (e.timeoutId) clearTimeout(e.timeoutId); if (e.intervalId) clearInterval(e.intervalId); } catch { } } reminderTimers.clear(); }
-    function clearAllReminderTimers() {
-      // Limpia correctamente timeoutId e intervalId guardados en el Map
-      for (const [id, entry] of reminderTimers.entries()) {
-        try {
-          if (entry && typeof entry === 'object') {
-            if (entry.timeoutId) clearTimeout(entry.timeoutId);
-            if (entry.intervalId) clearInterval(entry.intervalId);
-          }
-        } catch (e) { /* ignore */ }
-      }
-      reminderTimers.clear();
-    }
-
-    const debounce = (fn, wait = 250) => {
-        let t;
-        return (...a) => {
-          clearTimeout(t);
-          t = setTimeout(() => fn(...a), wait);
-        };
-      };
-      const debouncedRefresh = debounce(refreshList, 700);
-
-    /* =========================
-       DOMContentLoaded
-       ========================= */
-    window.addEventListener('DOMContentLoaded', () => {
-      // Formularios
-      $('loginForm')?.addEventListener('submit', (e) => { e.preventDefault(); login(); });
-      $('registerForm')?.addEventListener('submit', (e) => { e.preventDefault(); register(); });
-
-      // Links/login
-      $('linkGoRegister')?.addEventListener('click', (e) => { e.preventDefault(); showRegister(); });
-      $('btnBackToLogin')?.addEventListener('click', showLogin);
-      $('linkForgot')?.addEventListener('click', (e) => { e.preventDefault(); sendResetLink(); });
-
-      // Sesión
-      $('btnLogout')?.addEventListener('click', logout);
-
-      // Recordatorios & varios
-      $('btnOpenRemForm')?.addEventListener('click', () => {
-        showOverlay('reminderFormPopup', true);
-      });
-
-
-
-      $('btnCancelRemForm')?.addEventListener('click', () => showOverlay('reminderFormPopup', false));
-      $('tabFormBtn')?.addEventListener('click', () => { });
-      $('tabListBtn')?.addEventListener('click', async () => { await refreshRemindersTable(); });
-      $('notifToggle')?.addEventListener('change', requestNotificationsViaCheckbox);
-      $('btnStartWelcome')?.addEventListener('click', () => showOverlay('welcomePopup', false));
-      $('btnSave')?.addEventListener('click', saveContact);
-      $('btnClear')?.addEventListener('click', resetForm);
-
-      // Filtros
-      //const debounce = (fn, wait = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), wait); }; };
-      /*$('filterName')?.addEventListener('input', debounce(refreshList, 700));
-      $('filterEmail')?.addEventListener('input', debounce(refreshList, 700));
-      $('filterPhone')?.addEventListener('input', debounce(refreshList, 700));
-      $('filterCategory')?.addEventListener('change', refreshList);*/
-
-      $('filterName')?.addEventListener('input', debouncedRefresh);
-      $('filterEmail')?.addEventListener('input', debouncedRefresh);
-      $('filterPhone')?.addEventListener('input', debouncedRefresh);
-      $('filterCategory')?.addEventListener('change', refreshList);
-
-
-      $('btnScheduleRem')?.addEventListener('click', scheduleReminder);
-      $('btnCloseReminder')?.addEventListener('click', () => $('reminderPopup').style.display = 'none');
-      $('btnStopRepeat')?.addEventListener('click', stopRepeatForCurrent);
-      $('accordionFilterBtn')?.addEventListener('click', () => {
-        const btn = $('accordionFilterBtn'), c = $('accordionFilterContent'), ch = $('chevronFilter');
-        const exp = btn.getAttribute('aria-expanded') === 'true';
-        c.style.maxHeight = exp ? '0px' : (c.scrollHeight + 'px');
-        btn.setAttribute('aria-expanded', String(!exp));
-        ch.classList.toggle('up', !exp);
-        ch.textContent = !exp ? '▲' : '▼';
-      });
-
-      $('btnExport')?.addEventListener('click', exportDB);
-      $('btnImport')?.addEventListener('click', async () => {
-        if (window.showOpenFilePicker) {
-          try {
-            const [handle] = await showOpenFilePicker({ multiple: false, types: [{ description: "JSON", accept: { "application/json": [".json"] } }] });
-            const file = await handle.getFile(); const text = await file.text(); await importDBFromText(text); return;
-          } catch (err) { if (err?.name === "AbortError") return; }
-        }
-        const inp = $('importFile'); if (inp) { inp.value = ""; inp.click(); }
-      });
-      $('importFile')?.addEventListener('change', async (e) => { const file = e.target.files?.[0]; if (!file) return; const text = await file.text(); await importDBFromText(text); });
-
-      //rECORDATORIOS
-
-      // Alternar entre pestañas del popup de recordatorios
-      $('tabFormBtn')?.addEventListener('click', () => {
-        try {
-          // actualizar clases de pestaña
-          $('tabFormBtn').classList.add('active');
-          $('tabListBtn').classList.remove('active');
-
-          // mostrar el contenido del formulario
-          $('tabForm').classList.add('active');
-          $('tabList').classList.remove('active');
-        } catch (err) {
-          console.error("Error al cambiar a pestaña 'Programar':", err);
-        }
-      });
-
-      $('tabListBtn')?.addEventListener('click', async () => {
-        try {
-          // actualizar clases de pestaña
-          $('tabListBtn').classList.add('active');
-          $('tabFormBtn').classList.remove('active');
-
-          // mostrar la tabla de recordatorios
-          $('tabList').classList.add('active');
-          $('tabForm').classList.remove('active');
-
-          // cargar los recordatorios
-          //await refreshRemindersTable();
-        } catch (err) {
-          console.error("Error al cambiar a pestaña 'Mis recordatorios':", err);
-          alert("No se pudieron cargar los recordatorios. Intenta nuevamente.");
-        }
-      });
-
-
-      // Intento de sesión previa en esta pestaña (sessionStorage)
-      // Intento de sesión previa (solo mostrar login si no hay sesión)
-      (async () => {
-        try {
-          const { data: { session }, error } = await sb.auth.getSession();
-          if (error) throw error;
-
-          if (session?.user) {
-            // ✅ solo guardamos el usuario — no llamamos afterAuth()
-            currentUser = session.user;
-            return; // la carga real la hace onAuthStateChange (SIGNED_IN)
-          }
-        } catch (err) {
-          console.warn("Error verificando sesión previa:", err);
-        }
-
-        // Si no hay sesión, mostrar login
-        currentUser = null;
-        showLogin();
-        $('app').style.display = 'none';
-      })();
-    }
-  );
-
-  </script>
-
+    // Si no hay sesión, mostrar login
+    currentUser = null;
+    showLogin();
+    $('app').style.display = 'none';
+  })();
+});
+</script>
 
 
 
